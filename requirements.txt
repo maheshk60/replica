@@ -1,0 +1,17 @@
+django_celery_beat
+pdfkit
+celery
+djangorestframework
+django-cors-headers
+redis
+mysqlclient
+Pillow
+django_extensions
+gspread
+oauth2client
+cryptography
+django-filter
+pandas
+jwt
+reportlab
+weasyprint
