@@ -4,9 +4,10 @@
 
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Select } from 'antd'; 
 import { MCModal } from './MCModal';
 import { useAuth } from '../../contexts/AuthContext';
-
+const { Option } = Select; 
 // ══════════════════════════════════════════════════════════════════════
 // TOKENS
 // ══════════════════════════════════════════════════════════════════════
@@ -20,7 +21,7 @@ const STATUS_META = {
   wip: { label: 'WIP', color: '#f59e0b', bg: '#FEF3C7' },
   open: { label: 'Open', color: '#0ea5e9', bg: '#E0F2FE' },
   closed: { label: 'Closed', color: '#10b981', bg: '#D1FAE5' },
-  attention_required: { label: 'Attention Required', color: '#dc2626', bg: '#FEE2E2' },
+  //attention_required: { label: 'Attention Required', color: '#dc2626', bg: '#FEE2E2' },
 };
 
 
@@ -250,7 +251,7 @@ export default function LitigationJobListView({
   const [statusFilter, setStatusFilter] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     const st = params.get('status');
-    return st && ['wip', 'open', 'closed', 'attention_required'].includes(st) ? st : 'All';
+    return st && ['wip', 'open', 'closed'].includes(st) ? st : 'All';
   });
 
   const getPageLabel = (filter) => {
@@ -278,7 +279,7 @@ export default function LitigationJobListView({
 
   const getEffectiveStatus = (c) => c.computed_status || c.activity_status || 'wip';
 
-  const STS = ['All', 'wip', 'open', 'closed', 'attention_required'];
+  const STS = ['All', 'wip', 'open', 'closed'];
 
   const [subServiceFilter, setSubServiceFilter] = useState('All');
 
@@ -297,9 +298,8 @@ export default function LitigationJobListView({
     navigate(path);
   };
 
-  const isAdmin = user?.role === 'Admin' || user?.role === 'Founder' || user?.role === 'Manager';
-  const canAssignMC = () => isAdmin;
-  const canAddNewCase = isAdmin;
+  const canAddNewCase = ['Founder', 'Manager', 'Team Lead'].includes(user?.role);
+  const canAssignMC = () => ['Founder', 'Manager', 'Team Lead'].includes(user?.role);
 
   const handleCreated = (createdCase) => { fetchCases(); if (onCreated) onCreated(createdCase); };
 
@@ -368,31 +368,33 @@ export default function LitigationJobListView({
       <div style={{
         display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center',
       }}>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
-          style={{
-            padding: '8px 14px', borderRadius: 8, border: `1.5px solid ${BRD}`,
-            fontSize: 13, background: WH, color: '#1C1E2E', cursor: 'pointer',
-            outline: 'none', fontFamily: 'inherit', fontWeight: 600,
-          }}>
+        <Select
+          value={statusFilter}
+          onChange={(val) => setStatusFilter(val)}
+          style={{ minWidth: 200 }}
+          size="middle"
+        >
           {STS.map(s => (
-            <option key={s} value={s}>
+            <Option key={s} value={s}>
               {s === 'All' ? `All Statuses (${counts.All})` : `${STATUS_META[s]?.label} (${counts[s] || 0})`}
-            </option>
+            </Option>
           ))}
-        </select>
+        </Select>
 
-        <select value={subServiceFilter} onChange={(e) => setSubServiceFilter(e.target.value)}
-          style={{
-            padding: '8px 14px', borderRadius: 8, border: `1.5px solid ${BRD}`,
-            fontSize: 13, background: WH, color: '#1C1E2E', cursor: 'pointer',
-            outline: 'none', fontFamily: 'inherit', fontWeight: 600,
-          }}>
+        <Select
+          showSearch
+          value={subServiceFilter}
+          onChange={(val) => setSubServiceFilter(val)}
+          optionFilterProp="children"
+          style={{ minWidth: 200 }}
+          size="middle"
+        >
           {subServiceOptions.map(s => (
-            <option key={s} value={s}>
+            <Option key={s} value={s}>
               {s === 'All' ? 'All Subservices' : s}
-            </option>
+            </Option>
           ))}
-        </select>
+        </Select>
 
 
         <div style={{ position: 'relative', flex: 1, minWidth: 200, maxWidth: 320 }}>

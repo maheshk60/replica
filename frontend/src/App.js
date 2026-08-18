@@ -57,9 +57,10 @@ const Partnership = lazy(() =>
   import('./pages/legal_services/Partnership/partnership')
 );
 
-const ClientDetailView = lazy(() =>
-  import('./pages/legal_services/ClientDetailView')
+const LegalWorkSpace = lazy(() =>
+  import('./pages/legal_services/LegalWorkSpace')
 );
+
 
 
 // Auth
@@ -239,10 +240,14 @@ function App() {
                     <Route path="/legal-services/clients/:clientId" element={
                       <Suspense fallback={<PageLoader />}>
                         <PrivateRoute allowedRoles={['Admin','HR','Founder','Manager','Team Lead','Employee']}>
-                          <ClientDetailView />
+                          <LegalWorkSpace />
                         </PrivateRoute>
                       </Suspense>
                     } />
+
+
+
+
 
 
 

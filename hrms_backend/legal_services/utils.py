@@ -1,34 +1,3 @@
-
-# # legal_services/utils.py
-# from .models import LegalCaseAuditLog
-
-# def log_event(*, client_id, litigation_type, event_type, title,
-#                description='', user=None, old_values=None, new_values=None):
-#     LegalCaseAuditLog.objects.create(
-#         client_id=client_id, litigation_type=litigation_type,
-#         event_type=event_type, title=title, description=description,
-#         by=user, old_values=old_values, new_values=new_values,
-#     )
-
-# def diff_fields(instance, validated_data, tracked_fields):
-#     """Returns (old, new) dicts containing only fields that actually changed."""
-#     old, new = {}, {}
-#     for field in tracked_fields:
-#         if field not in validated_data:
-#             continue
-#         old_val = getattr(instance, field, None)
-#         new_val = validated_data[field]
-#         old_str = str(old_val) if old_val is not None else None
-#         new_str = str(new_val) if new_val is not None else None
-#         if old_str != new_str:
-#             old[field] = old_str
-#             new[field] = new_str
-#     return old, new
-
-
-
-
-
 # legal_services/utils.py
 from .models import LegalCaseAuditLog
 

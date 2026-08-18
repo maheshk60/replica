@@ -318,7 +318,7 @@ import { useAuth } from '../../contexts/AuthContext';
 
 /* ─── LOCAL API DEFINITIONS (used only by this file) ─── */
 const getUsers = () =>
-  api.get('employee/employees/').then((res) => {
+  api.get('employee/employees/', { params: { is_active: true } }).then((res) => {
     const raw = res.data.results || res.data;
     const mapped = raw.map((emp) => ({
       id: emp.user_id ?? emp.id,

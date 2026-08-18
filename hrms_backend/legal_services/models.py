@@ -74,6 +74,15 @@ class TDSLitigation(BaseLegalCase):
         'clients.SubService', on_delete=models.SET_NULL, null=True, blank=True,
         related_name='tds_litigations'
     )
+
+    task = models.ForeignKey(
+        'clients.Task',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='tds_litigation_jobs'
+    )
+
     assessment_year = models.CharField(max_length=50, blank=True, null=True)
     period = models.CharField(
         max_length=20,
@@ -128,6 +137,15 @@ class IncomeTaxLitigation(BaseLegalCase):
         'clients.SubService', on_delete=models.SET_NULL, null=True, blank=True,
         related_name='income_tax_litigations'
     )
+
+    task = models.ForeignKey(
+        'clients.Task',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='income_tax_litigation_jobs'
+    )
+
     assessment_year = models.CharField(max_length=50, blank=True, null=True)
     period = models.CharField(
         max_length=20,
@@ -231,15 +249,25 @@ class PartnershipCase(BaseLegalCase):
 
 class LegalCaseAuditLog(models.Model):
     EVENT_TYPES = [
-        ('case_created', 'Case Created'),
-        ('info_update', 'Information Updated'),
-        ('doc_upload', 'Document Uploaded'),
-        ('doc_delete', 'Document Deleted'),
-        ('status_change', 'Status Changed'),
-        ('assignment', 'Maker/Checker Assigned'),
-        ('activity_update', 'Case Details Updated'),
-        ('note', 'Note'),
+        ('case_created',          'Case Created'),
+        ('info_update',           'Information Updated'),
+        ('doc_upload',            'Document Uploaded'),
+        ('doc_delete',            'Document Deleted'),
+        ('status_change',         'Status Changed'),
+        ('assignment',            'Maker/Checker Assigned'),
+        ('activity_update',       'Case Details Updated'),
+        ('note',                  'Note'),
+        ('notice_created',        'Notice Created'),
+        ('notice_doc_uploaded',   'Notice Document Uploaded'),
+        ('notice_doc_approved',   'Notice Document Approved'),
+        ('notice_doc_rejected',   'Notice Document Rejected'),
+        ('notice_doc_escalated',  'Notice Document Escalated'),
+        ('notice_doc_deleted',    'Notice Document Deleted'),
+        ('notice_status_changed', 'Notice Status Changed'),
+        ('notice_closed',         'Notice Closed'),
     ]
+
+
     litigation_type = models.CharField(max_length=20, choices=[('tds', 'TDS'), ('income-tax', 'Income Tax')])
     client = models.ForeignKey('clients.Client', on_delete=models.CASCADE, related_name='legal_audit_logs')
     job_id = models.IntegerField(null=True, blank=True, db_index=True)
@@ -294,6 +322,13 @@ class DocumentCategory(models.Model):
         related_name='document_categories',
     )
     job_id = models.IntegerField(null=True, blank=True, db_index=True)
+
+    litigation_type = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        db_index=True,
+    )
     label = models.CharField(max_length=150)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -372,6 +407,11 @@ class CourtCase(models.Model):
     case_number = models.CharField(max_length=100, blank=True, null=True)
     appeal_stage = models.CharField(max_length=30, choices=APPEAL_STAGE_CHOICES, blank=True, null=True)
 
+    officer = models.CharField(max_length=200, blank=True, null=True)
+    din_number = models.CharField(max_length=100, blank=True, null=True)
+    notice_date = models.DateField(blank=True, null=True)
+    ph_date = models.DateField(blank=True, null=True)
+
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='wip')
     next_hearing_date = models.DateField(blank=True, null=True)
     due_date = models.DateField(blank=True, null=True)
@@ -443,6 +483,12 @@ class CourtCaseStatusLog(models.Model):
     judgement_info = models.TextField(blank=True, null=True)
     next_action = models.CharField(max_length=20, blank=True, null=True)
 
+    officer = models.CharField(max_length=200, blank=True, null=True)
+    din_number = models.CharField(max_length=100, blank=True, null=True)
+    notice_date = models.DateField(blank=True, null=True)
+    due_date = models.DateField(blank=True, null=True)
+    ph_date = models.DateField(blank=True, null=True)
+    
     class Meta:
         ordering = ['-created_at']
 
@@ -461,6 +507,7 @@ class ReviewRequest(models.Model):
         ('step',         'Daily Update'),
         ('appeal',       'Submit Appeal'),
         ('adjournment',  'Log Adjournment'),
+        ('notice_edit',  'Notice Info Edit'),
     ]
 
     STATUS_CHOICES = [
@@ -514,3 +561,136 @@ class ReviewRequest(models.Model):
 
     def __str__(self):
         return f"[{self.status}] {self.action_type} — Case {self.court_case_id}"
+
+
+
+
+class CaseNotice(models.Model):
+    STATUS_CHOICES = [
+        ('wip',    'WIP'),
+        ('under_review', 'Under Review'),
+        ('open',   'Open'),
+        ('closed', 'Closed'),
+    ]
+
+    court_case        = models.ForeignKey('CourtCase', on_delete=models.CASCADE, related_name='notices')
+    din_number        = models.CharField(max_length=100, blank=True, null=True)
+    officer           = models.CharField(max_length=200, blank=True, null=True)
+    section           = models.CharField(max_length=100, blank=True, null=True)
+    notice_date       = models.DateField(blank=True, null=True)
+    due_date          = models.DateField(blank=True, null=True)
+    extended_due_date = models.DateField(blank=True, null=True)
+    ph_date           = models.DateField(blank=True, null=True)
+    status            = models.CharField(max_length=20, choices=STATUS_CHOICES, default='wip')
+    notes             = models.TextField(blank=True, null=True)
+    created_by        = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_notices')
+    created_at        = models.DateTimeField(auto_now_add=True)
+    updated_at        = models.DateTimeField(auto_now=True)
+
+    review_status = models.CharField(
+        max_length=20,
+        choices=[
+            ('not_applicable', 'Not Applicable'),
+            ('pending', 'Pending'),
+            ('accepted', 'Accepted'),
+            ('rejected', 'Rejected'),
+            ('escalated', 'Escalated'),
+        ],
+        default='not_applicable'
+    )
+    review_note = models.TextField(blank=True, null=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='reviewed_notices'
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Notice {self.din_number} — Job {self.court_case.job_id}"
+
+
+class NoticeDocument(models.Model):
+    DOC_TYPE_CHOICES = [
+        ('court_notice', 'Court Notice'),
+        ('pending',      'Pending Review'),
+        ('reply',        'Approved Reply'),
+        ('acknowledgment',  'Acknowledgment'),
+    ]
+
+    REVIEW_STATUS_CHOICES = [
+        ('not_applicable', 'Not Applicable'),
+        ('pending',        'Pending Review'),
+        ('approved',       'Approved'),
+        ('rejected',       'Rejected'),
+        ('escalated',      'Escalated to CEO'),
+    ]
+
+    notice        = models.ForeignKey(CaseNotice, on_delete=models.CASCADE, related_name='documents')
+    file          = models.FileField(upload_to='notice_documents/%Y/%m/')
+    file_name     = models.CharField(max_length=255, blank=True)
+    doc_type      = models.CharField(max_length=20, choices=DOC_TYPE_CHOICES, default='pending')
+    review_status = models.CharField(max_length=20, choices=REVIEW_STATUS_CHOICES, default='not_applicable')
+    review_note   = models.TextField(blank=True, null=True)
+    reviewed_by   = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='reviewed_notice_docs')
+    reviewed_at   = models.DateTimeField(null=True, blank=True)
+    uploaded_by   = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='uploaded_notice_docs')
+    uploaded_at   = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-uploaded_at']
+
+    def save(self, *args, **kwargs):
+        if not self.file_name and self.file:
+            self.file_name = self.file.name.split('/')[-1]
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.file_name} ({self.doc_type})"
+
+
+class NoticeReply(models.Model):
+    STATUS_CHOICES = [
+        ('draft',    'Draft'),
+        ('pending',  'Pending Review'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
+        ('escalated', 'Escalated'), 
+    ]
+
+    notice = models.ForeignKey(
+        CaseNotice,
+        on_delete=models.CASCADE,
+        related_name='replies'
+    )
+    title        = models.CharField(max_length=255, blank=True, null=True)
+    content_html = models.TextField(blank=True, null=True)
+    status       = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+    is_final_reply = models.BooleanField(default=False)
+    
+    created_by     = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='created_notice_replies'
+    )
+    last_edited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='edited_notice_replies'
+    )
+    reviewed_by    = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='reviewed_notice_replies'
+    )
+    review_note    = models.TextField(blank=True, null=True)
+    reviewed_at    = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Reply for {self.notice.din_number}"

@@ -5,8 +5,9 @@ import { api } from '../../services/api';
 import { MCModal } from './MCModal';
 import { useAuth } from '../../contexts/AuthContext';
 import LegalAuditTrailTab from './LegalAuditTrailTab';
-import ActivityTimeline from './ActivityTimeline';
+import ActivityTimelineV2 from './ActivityTimelineV2';
 import ReviewTab from './ReviewTab';
+import ReviewTabV2 from './ReviewTabV2';
 
 // ══════════════════════════════════════════════════════════════════════
 // LOCAL API DEFINITIONS (used only by this file)
@@ -72,18 +73,18 @@ const courtCaseApi = {
   setDescription: (id, description) => api.post(`/legal-services/court-cases/${id}/set-description/`, { description }),
   addStep: (id, note) => api.post(`/legal-services/court-cases/${id}/add-step/`, { note }),
 
-  // Appeal (WIP → OPEN)
-  submitAppeal: (id, payload) => api.post(`/legal-services/court-cases/${id}/submit-appeal/`, payload),
+  // // Appeal (WIP → OPEN)
+  // submitAppeal: (id, payload) => api.post(`/legal-services/court-cases/${id}/submit-appeal/`, payload),
 
-  // Future actions (already wired)
-  logAdjournment: (id, payload) => api.post(`/legal-services/court-cases/${id}/log-adjournment/`, payload),
-  logOutcome: (id, payload) => api.post(`/legal-services/court-cases/${id}/log-outcome/`, payload),
+  // // Future actions (already wired)
+  // logAdjournment: (id, payload) => api.post(`/legal-services/court-cases/${id}/log-adjournment/`, payload),
+  // logOutcome: (id, payload) => api.post(`/legal-services/court-cases/${id}/log-outcome/`, payload),
 
-  // Legacy (kept for compatibility)
-  submitToCourt: (id) => api.post(`/legal-services/court-cases/${id}/submit-to-court/`),
-  recordCourtResponse: (id, body) => api.post(`/legal-services/court-cases/${id}/court-response/`, body),
-  logHearingOutcome: (id, body) => api.post(`/legal-services/court-cases/${id}/log-hearing-outcome/`, body),
-  fileAppeal: (id, payload) => api.post(`/legal-services/court-cases/${id}/submit-appeal/`, payload),
+  // // Legacy (kept for compatibility)
+  // submitToCourt: (id) => api.post(`/legal-services/court-cases/${id}/submit-to-court/`),
+  // recordCourtResponse: (id, body) => api.post(`/legal-services/court-cases/${id}/court-response/`, body),
+  // logHearingOutcome: (id, body) => api.post(`/legal-services/court-cases/${id}/log-hearing-outcome/`, body),
+  // fileAppeal: (id, payload) => api.post(`/legal-services/court-cases/${id}/submit-appeal/`, payload),
 };
 
 const reviewApi = {
@@ -138,7 +139,7 @@ const FIELD_LABELS = [
   ['gstin', 'GSTIN'], ['pan', 'PAN'], ['tan', 'TAN'], ['cin', 'CIN'],
   ['iec', 'IEC'], ['lei', 'LEI'], ['ksea', 'KSEA'], ['udyam', 'UDYAM'],
   ['apt', 'APT'], ['ept', 'EPT'], ['address', 'Address'],
-  ['group_name', 'Client Group'], ['primary_spoc_name', 'Primary SPOC'],
+  //['group_name', 'Client Group'], ['primary_spoc_name', 'Primary SPOC'],
 ];
 
 const ADMIN_ROLES = ['Admin', 'Founder'];
@@ -158,7 +159,7 @@ const STATUS_META = {
   wip: { label: 'WIP', color: '#f59e0b', bg: '#FEF3C7' },
   open: { label: 'Open', color: '#0ea5e9', bg: '#E0F2FE' },
   closed: { label: 'Closed', color: '#10b981', bg: '#D1FAE5' },
-  attention_required: { label: 'Attention Required', color: '#dc2626', bg: '#FEE2E2' },
+  //attention_required: { label: 'Attention Required', color: '#dc2626', bg: '#FEE2E2' },
 };
 
 function fmtDate(d) {
@@ -646,7 +647,7 @@ const S = {
   }),
 };
 
-export default function ClientDetailView() {
+export default function LegalWorkSpace() {
   const { clientId } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -672,11 +673,8 @@ export default function ClientDetailView() {
 
   useEffect(() => {
     const params = new URLSearchParams(searchParams);
-    if (activeTab === 'details') {
-      params.delete('tab');
-    } else {
-      params.set('tab', activeTab);
-    }
+    // ✅ Always set tab in URL (even for details) so refresh preserves it
+    params.set('tab', activeTab);
     const newSearch = params.toString();
     const newUrl = `${window.location.pathname}${newSearch ? '?' + newSearch : ''}`;
     window.history.replaceState(null, '', newUrl);
@@ -707,16 +705,39 @@ export default function ClientDetailView() {
       .catch(() => setConstitutions([]));
   }, []);
 
+  // useEffect(() => {
+  //   let active = true;
+  //   setLoading(true);
+  //   setError(null);
+  //   api.get(`/clients/clients/${clientId}/`)
+  //     .then((res) => { if (active) setClient(res.data); })
+  //     .catch(() => active && setError('Failed to load client details.'))
+  //     .finally(() => active && setLoading(false));
+  //   return () => { active = false; };
+  // }, [clientId]);
+
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError(null);
-    api.get(`/clients/clients/${clientId}/`)
-      .then((res) => { if (active) setClient(res.data); })
-      .catch(() => active && setError('Failed to load client details.'))
-      .finally(() => active && setLoading(false));
+
+    api.get(`/legal-services/client/${clientId}/`)
+      .then((res) => {
+        if (active) setClient(res.data);
+      })
+      .catch(() => {
+        if (!active) return;
+        // Fallback to original endpoint
+        api.get(`/clients/clients/${clientId}/`)
+          .then((res) => { if (active) setClient(res.data); })
+          .catch(() => { if (active) setError('Failed to load client details.'); });
+      })
+      .finally(() => { if (active) setLoading(false); });
+
     return () => { active = false; };
   }, [clientId]);
+
+
 
   useEffect(() => {
     if (!clientId) return;
@@ -794,6 +815,7 @@ export default function ClientDetailView() {
       params: {
         client: clientId,
         job_id: caseData.id,
+        litigation_type: activityLitigationType,
       },
     })
       .then((res) => {
@@ -859,10 +881,22 @@ export default function ClientDetailView() {
   const openDeleteModal = (type, id) => setDeleteModal({ open: true, type, id });
 
   const handleView = (doc) => window.open(doc.file_url, '_blank', 'noopener,noreferrer');
-  const handleDownload = (doc) => {
-    const link = document.createElement('a');
-    link.href = doc.file_url; link.download = doc.document_name; link.target = '_blank';
-    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+  
+  const handleDownload = async (doc) => {
+    try {
+      const response = await fetch(doc.file_url);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = doc.document_name || 'download';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Download failed:', err);
+    }
   };
 
   const handleMCAssigned = (updatedCase) => { setCaseData(updatedCase); setShowMCModal(false); };
@@ -943,16 +977,15 @@ export default function ClientDetailView() {
     } finally { setCreatingCase(false); }
   };
 
-  const canEditActivity = ADMIN_ROLES_FULL.includes(user?.role)
-    || (caseData?.makers || []).some((m) => m.id === user?.id);
-
+  const canEditActivity = (caseData?.makers || []).some((m) => m.id === user?.id);
+  // const canLogOutcome = user?.role === 'Founder';
   const [editingInfo, setEditingInfo] = useState(false);
   const [infoForm, setInfoForm] = useState(null);
   const [infoSaving, setInfoSaving] = useState(false);
   const [infoSaveError, setInfoSaveError] = useState(null);
 
-  const canEditClientInfo = ADMIN_ROLES_INFO.includes(user?.role) || combinedMakerIds.includes(user?.id);
-  const canDeleteDocuments = ADMIN_ROLES_INFO.includes(user?.role);
+  const canEditClientInfo = (caseData?.makers || []).some((m) => m.id === user?.id) || combinedMakerIds.includes(user?.id);
+  const canDeleteDocuments = ['Founder', 'Manager'].includes(user?.role);
 
   const startEditInfo = () => {
     setInfoForm({
@@ -976,7 +1009,8 @@ export default function ClientDetailView() {
     setInfoSaving(true);
     setInfoSaveError(null);
     try {
-      const res = await api.patch(
+      // ✅ Step 1 — Save to original endpoint
+      await api.patch(
         `/clients/clients/${clientId}/`,
         infoForm,
         {
@@ -987,11 +1021,19 @@ export default function ClientDetailView() {
           },
         }
       );
-      setClient(res.data);
+
+      // ✅ Step 2 — Re-fetch from legal endpoint to get unmasked data
+      const freshRes = await api.get(`/legal-services/client/${clientId}/`);
+      setClient(freshRes.data);
+
       setEditingInfo(false);
       bumpRefresh();
     } catch (err) {
-      setInfoSaveError(err.response?.data ? JSON.stringify(err.response.data) : 'Failed to save changes.');
+      setInfoSaveError(
+        err.response?.data
+          ? JSON.stringify(err.response.data)
+          : 'Failed to save changes.'
+      );
     } finally {
       setInfoSaving(false);
     }
@@ -1066,6 +1108,26 @@ export default function ClientDetailView() {
   console.log('caseData?.makers:', caseData?.makers);
   console.log('caseData?.checkers:', caseData?.checkers);
   console.log('getActionOwnerName() result:', getActionOwnerName());
+
+
+  const linkedTask = caseData?.linked_task || null;
+
+  const TASK_STATUS_META = {
+    'To Do':       { label: 'TO DO',        bg: '#ecfdf3', color: '#027a48' },
+    'In Progress': { label: 'IN PROGRESS',  bg: '#eff6ff', color: '#1d4ed8' },
+    'Done':        { label: 'DONE',         bg: '#f3f4f6', color: '#374151' },
+    'Over Due':    { label: 'OVER DUE',     bg: '#fef2f2', color: '#dc2626' },
+  };
+
+  const fmtDateTime = (value) => {
+    if (!value) return '—';
+    return new Date(value).toLocaleString('en-IN', {
+      day: '2-digit', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+  };
+
+  const canAddCase = (caseData?.makers || []).some((m) => m.id === user?.id);
 
   return (
     <main style={S.container}>
@@ -1205,377 +1267,102 @@ export default function ClientDetailView() {
         {/* ══════════ TAB CONTENT ══════════ */}
         <section style={S.tabContent}>
 
-         {activeTab === 'details' && (
-          <div>
-            {infoSaveError && <div style={S.uploadError}>{infoSaveError}</div>}
+          {activeTab === 'details' && (
+            <div style={{ padding: 18, background: '#F8F9FB', fontFamily: 'inherit' }}>
+              <style>{`
+                .cdv-input-focus:focus { border-color: #1A2F5A !important; box-shadow: 0 0 0 2px rgba(26,47,90,0.1); }
+                .client-field-label { font-size: 11px; font-weight: 700; color: #7A7F99; text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; }
+                .client-field-value { font-size: 13px; font-weight: 600; color: #1C1E2E; word-break: break-word; }
+                .client-field-empty { font-size: 13px; font-weight: 400; color: #C2C8D2; font-style: italic; }
+              `}</style>
 
-            {!editingInfo ? (
-              <>
-                {/* ── Summary Cards Row ── */}
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                  gap: 12,
-                  marginBottom: 16,
-                }}>
-                  {[
-                    { label: 'Task ID', value: caseData?.task_id_display || caseData?.task_id, icon: '🆔', color: '#214274' },
-                    { 
-                      label: 'Period', 
-                      value: caseData?.task_period || caseData?.assessment_year || caseData?.period,  // ✅ Same as litigation card
-                      icon: '📆', 
-                      color: '#0891b2' 
-                    },
-                    { label: 'Sub-Service', value: caseData?.sub_service_name, icon: '📄', color: '#7c3aed' },
-                    { label: 'Due Date', value: fmtDate(caseData?.due_date), icon: '⏰', color: '#dc2626' },
-                  ].map((card) => (
-                    <div key={card.label} style={{
-                      background: '#fff',
-                      border: '1px solid #e9edf4',
-                      borderRadius: 12,
-                      padding: '14px 18px',
-                      position: 'relative',
-                      overflow: 'hidden',
-                      boxShadow: '0 1px 3px rgba(20,20,40,0.04)',
-                    }}>
-                      
-                      <div style={{
-                        fontSize: 11, color: '#7A7F99', marginBottom: 3,
-                      }}>
-                        {card.label}
-                      </div>
-                      <div style={{
-                        fontSize: 14, fontWeight: 700, color: '#214274',
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                      }}>
-                        {card.value || '—'}
-                      </div>
-                    </div>
-                  ))}
+              {infoSaveError && (
+                <div style={{ background: '#FEF2F2', borderLeft: '3px solid #C62828', borderRadius: '0 8px 8px 0', padding: '10px 14px', fontSize: 12, color: '#C62828', marginBottom: 16 }}>
+                  ⚠️ {infoSaveError}
                 </div>
+              )}
 
-                {/* ── Info Banner ── */}
-                <div style={{
-                  background: '#EEF3FC',
-                  borderLeft: '3px solid #214274',
-                  borderRadius: '0 8px 8px 0',
-                  padding: '8px 14px',
-                  fontSize: 12,
-                  color: '#214274',
-                  marginBottom: 16,
-                  fontWeight: 500,
-                }}>
-                  ℹ️ Details auto-filled from client master. Click "Edit Details" to update.
-                </div>
-
-                {/* ── Main Detail Card ── */}
-                <div style={{
-                  background: '#fff',
-                  border: '1px solid #e9edf4',
-                  borderRadius: 14,
-                  overflow: 'hidden',
-                  boxShadow: '0 2px 8px rgba(20,20,40,0.05)',
-                }}>
-                  {/* Card Header — with Edit button inside */}
-                  <div style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: '14px 20px',
-                    background: 'linear-gradient(90deg, #f5f7fb, #eef2ff)',
-                    borderBottom: '1px solid #e9edf4',
-                  }}>
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: '#1a1a2e', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                        Client Information
-                      </div>
-                    </div>
-
-                    {/* Edit button — inside header */}
-                    {canEditClientInfo && (
-                      <button
-                        type="button"
-                        className="cdv-primary-btn"
-                        onClick={startEditInfo}
-                        style={{
-                          padding: '7px 16px',
-                          border: 'none',
-                          borderRadius: 8,
-                          background: 'linear-gradient(135deg, #214274 0%, #205995 100%)',
-                          color: '#fff',
-                          fontSize: 12,
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                          boxShadow: '0 2px 6px rgba(33,66,116,0.25)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          fontFamily: 'inherit',
-                          transition: 'all 0.15s ease',
-                          flexShrink: 0,
-                        }}
-                      >
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
-                          stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                          <path d="M12 20h9" />
-                          <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-                        </svg>
-                        Edit Details
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Detail Grid — 4 columns: label, value, label, value */}
-                  <div style={{ padding: '16px 20px' }}>
-                    <div style={{
-                      display: 'grid',
-                      gridTemplateColumns: '140px 1fr 140px 1fr',
-                      gap: '0',
-                    }}>
-                      {FIELD_LABELS.map(([key, label], idx) => {
-                        const value = clientDisplay[key];
-                        const isEmpty = !value || value === '—';
-                        const rowIdx = Math.floor(idx / 2);
-                        const isEvenRow = rowIdx % 2 === 0;
-
-                        return (
-                          <React.Fragment key={key}>
-                            <div style={{
-                              padding: '12px 14px',
-                              fontSize: 11, fontWeight: 700,
-                              color: '#7A7F99',
-                              textTransform: 'uppercase',
-                              letterSpacing: '0.04em',
-                              background: isEvenRow ? '#fafbfd' : '#fff',
-                              borderBottom: '1px solid #f3f4f8',
-                              display: 'flex', alignItems: 'center',
-                            }}>
-                              {label}
-                            </div>
-
-                            <div style={{
-                              padding: '12px 14px',
-                              fontSize: 13, fontWeight: isEmpty ? 500 : 600,
-                              color: isEmpty ? '#c2c8d2' : '#1f2937',
-                              fontStyle: isEmpty ? 'italic' : 'normal',
-                              background: isEvenRow ? '#fafbfd' : '#fff',
-                              borderBottom: '1px solid #f3f4f8',
-                              overflowWrap: 'anywhere',
-                              wordBreak: 'break-word',
-                              lineHeight: 1.4,
-                              display: 'flex', alignItems: 'center',
-                              fontFamily: ['pan', 'gstin', 'tan', 'cin', 'iec', 'lei', 'ksea', 'udyam'].includes(key)
-                                ? "'Roboto Mono', monospace" : 'inherit',
-                              letterSpacing: ['pan', 'gstin', 'tan', 'cin'].includes(key) ? '0.04em' : 'normal',
-                            }}>
-                              {value || '—'}
-                            </div>
-                          </React.Fragment>
-                        );
-                      })}
+              {/* ── 1. Summary Stats Row ── */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+                {[
+                  { label: 'Task ID', value: caseData?.task_id_display || caseData?.task_id, mono: true },
+                  { label: 'Period', value: caseData?.task_period || caseData?.assessment_year || caseData?.period },
+                  { label: 'Sub-Service', value: caseData?.sub_service_name },
+                  { label: 'Due Date', value: fmtDate(caseData?.due_date) },
+                ].map((s) => (
+                  <div key={s.label} style={{ background: '#fff', border: '1px solid #E8EAF0', borderRadius: 10, padding: '12px 16px' }}>
+                    <div style={{ fontSize: 11, color: '#7A7F99', marginBottom: 3 }}>{s.label}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: '#1A2F5A', fontFamily: s.mono ? 'monospace' : 'inherit' }}>
+                      {s.value || '—'}
                     </div>
                   </div>
-                </div>
-              </>
-            ) : (
-              <div>
-                {/* ── Summary Cards Row (still visible in edit mode) ── */}
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                  gap: 12,
-                  marginBottom: 16,
-                }}>
-                  {[
-                    { label: 'Task ID', value: caseData?.task_id_display || caseData?.task_id, icon: '🆔', color: '#214274' },
-                    { 
-                      label: 'Period', 
-                      value: caseData?.task_period || caseData?.assessment_year || caseData?.period,  // ✅ Same as litigation card
-                      icon: '📆', 
-                      color: '#0891b2' 
-                    },
-                    { label: 'Sub-Service', value: caseData?.sub_service_name, icon: '📄', color: '#7c3aed' },
-                    { label: 'Due Date', value: fmtDate(caseData?.due_date), icon: '⏰', color: '#dc2626' },
-                  ].map((card) => (
-                    <div key={card.label} style={{
-                      background: '#fff',
-                      border: '1px solid #e9edf4',
-                      borderRadius: 12,
-                      padding: '14px 18px',
-                      position: 'relative',
-                      overflow: 'hidden',
-                      boxShadow: '0 1px 3px rgba(20,20,40,0.04)',
-                      opacity: 0.7,
-                    }}>
-                      
-                      <div style={{
-                        fontSize: 11, color: '#7A7F99', marginBottom: 3,
-                      }}>
-                        {card.label}
-                      </div>
-                      <div style={{
-                        fontSize: 14, fontWeight: 700, color: '#214274',
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                      }}>
-                        {card.value || '—'}
-                      </div>
-                    </div>
-                  ))}
+                ))}
+              </div>
+
+              {/* ── 2. Info Banner ── */}
+              <div style={{ background: '#EEF3FC', borderLeft: '3px solid #1A2F5A', borderRadius: '0 8px 8px 0', padding: '10px 14px', fontSize: 12, color: '#1A2F5A', marginBottom: 16, fontWeight: 500 }}>
+                ℹ️ {canEditClientInfo ? 'Auto-filled from client master. Edit to update.' : 'Read-only mode. Assign a Maker to enable editing.'}
+              </div>
+
+              {/* ── 3. Client Information Card ── */}
+              <div style={{ background: '#fff', border: '1px solid #E8EAF0', borderRadius: 12, marginBottom: 16, overflow: 'hidden' }}>
+                <div style={{ padding: '10px 18px', borderBottom: '1px solid #E8EAF0', background: '#F2F4F8', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#1C1E2E', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    Client Information
+                  </span>
+                  {canEditClientInfo && !editingInfo && (
+                    <button onClick={startEditInfo} style={{ background: 'transparent', border: '1.5px solid #1A2F5A', color: '#1A2F5A', padding: '4px 12px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                      ✏ Edit
+                    </button>
+                  )}
                 </div>
 
-                {/* ── Edit Form Card ── */}
-                <div style={{
-                  background: '#fff',
-                  border: '1px solid #e9edf4',
-                  borderRadius: 14,
-                  overflow: 'hidden',
-                  boxShadow: '0 2px 8px rgba(20,20,40,0.05)',
-                }}>
-                  <div style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: '14px 20px',
-                    background: 'linear-gradient(90deg, #f5f7fb, #eef2ff)',
-                    borderBottom: '1px solid #e9edf4',
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div>
-                        <div style={{ fontSize: 14, fontWeight: 800, color: '#1a1a2e', letterSpacing: '-0.01em' }}>
-                          Edit Client Information
-                        </div>
-                      </div>
-                    </div>
+                <div style={{ padding: 20 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr 160px 1fr', gap: '14px 24px' }}>
+                    {FIELD_LABELS.map(([key, label]) => {
+                      const value = clientDisplay[key];
+                      const isEmpty = !value || value === '—';
+                      const isAddress = key === 'address';
+                      const isMono = ['pan', 'gstin', 'tan', 'cin', 'iec', 'lei', 'ksea', 'udyam', 'apt', 'ept'].includes(key);
 
-                    <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                      <button
-                        type="button"
-                        onClick={() => setEditingInfo(false)}
-                        style={{
-                          padding: '7px 16px',
-                          border: '1.5px solid #e5e9f2',
-                          borderRadius: 8,
-                          background: '#fff',
-                          color: '#6b7280',
-                          fontSize: 12,
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          fontFamily: 'inherit',
-                          transition: 'all 0.15s ease',
-                        }}
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        className="cdv-primary-btn"
-                        onClick={handleInfoSave}
-                        disabled={infoSaving}
-                        style={{
-                          padding: '7px 16px',
-                          border: 'none',
-                          borderRadius: 8,
-                          background: infoSaving
-                            ? '#cbd3e0'
-                            : 'linear-gradient(135deg, #214274 0%, #205995 100%)',
-                          color: '#fff',
-                          fontSize: 12,
-                          fontWeight: 700,
-                          cursor: infoSaving ? 'not-allowed' : 'pointer',
-                          fontFamily: 'inherit',
-                          boxShadow: infoSaving ? 'none' : '0 2px 6px rgba(33,66,116,0.25)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                          transition: 'all 0.15s ease',
-                        }}
-                      >
-                        {infoSaving && (
-                          <div style={{
-                            width: 12, height: 12,
-                            border: '2px solid rgba(255,255,255,0.3)',
-                            borderTop: '2px solid #fff',
-                            borderRadius: '50%',
-                            animation: 'cdvSpin 0.6s linear infinite',
-                          }} />
-                        )}
-                        {infoSaving ? 'Saving…' : 'Save Changes'}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div style={{ padding: 20 }}>
-                    <div style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(2, 1fr)',
-                      gap: 16,
-                    }}>
-                      {[
-                        ['email', 'Email'], ['phone', 'Phone'],
-                        ['contact_person', 'Contact Person'],
-                        ['nature_of_business', 'Nature of Business'],
-                      ].map(([n, l]) => (
-                        <div key={n} style={S.formField}>
-                          <label style={S.formLabel}>{l}</label>
-                          <input
-                            className="cdv-input-focus"
-                            style={S.formInput}
-                            name={n}
-                            value={infoForm[n]}
-                            onChange={handleInfoFormChange}
-                          />
-                        </div>
-                      ))}
-
-                      <div style={S.formField}>
-                        <label style={S.formLabel}>Constitution</label>
-                        <select
-                          className="cdv-input-focus"
-                          style={S.formSelect}
-                          name="constitution"
-                          value={infoForm.constitution || ''}
-                          onChange={handleInfoFormChange}
-                        >
-                          <option value="">Not specified</option>
-                          {constitutions.map((c) => (
-                            <option key={c.id} value={c.id}>{c.name}</option>
-                          ))}
-                        </select>
-                      </div>
-
-                      {[
-                        ['gstin', 'GSTIN'], ['pan', 'PAN'], ['tan', 'TAN'], ['cin', 'CIN'],
-                        ['iec', 'IEC'], ['lei', 'LEI'], ['ksea', 'KSEA'], ['udyam', 'UDYAM'],
-                        ['apt', 'APT'], ['ept', 'EPT'],
-                      ].map(([n, l]) => (
-                        <div key={n} style={S.formField}>
-                          <label style={S.formLabel}>{l}</label>
-                          <input
-                            className="cdv-input-focus"
-                            style={S.formInput}
-                            name={n}
-                            value={infoForm[n]}
-                            onChange={handleInfoFormChange}
-                          />
-                        </div>
-                      ))}
-
-                      <div style={{ ...S.formField, gridColumn: '1 / -1' }}>
-                        <label style={S.formLabel}>Address</label>
-                        <textarea
-                          className="cdv-input-focus"
-                          style={S.formTextarea}
-                          name="address"
-                          value={infoForm.address}
-                          onChange={handleInfoFormChange}
-                          rows={3}
-                        />
-                      </div>
-                    </div>
+                      return (
+                        <React.Fragment key={key}>
+                          <div className="client-field-label" style={{ paddingTop: editingInfo ? 8 : 0 }}>{label}</div>
+                          <div style={{ gridColumn: isAddress ? 'span 3' : 'span 1' }}>
+                            {editingInfo ? (
+                              isAddress ? (
+                                <textarea name={key} value={infoForm[key] || ''} onChange={handleInfoFormChange} rows={2} className="cdv-input-focus" style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E8EAF0', fontSize: 13, fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box' }} />
+                              ) : (
+                                <input name={key} value={infoForm[key] || ''} onChange={handleInfoFormChange} className="cdv-input-focus" style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E8EAF0', fontSize: 13, fontFamily: isMono ? 'monospace' : 'inherit', boxSizing: 'border-box' }} />
+                              )
+                            ) : (
+                              <div className={isEmpty ? 'client-field-empty' : 'client-field-value'} style={{ fontFamily: isMono ? 'monospace' : 'inherit', whiteSpace: isAddress ? 'pre-wrap' : 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {value || '—'}
+                              </div>
+                            )}
+                          </div>
+                        </React.Fragment>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
-            )}
-          </div>
-        )}
 
-          {/* DOCUMENTS TAB */}
+              {/* ── 5. Edit Mode Actions ── */}
+              {editingInfo && (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
+                  <button onClick={() => setEditingInfo(false)} style={{ padding: '8px 20px', borderRadius: 8, border: '1px solid #E8EAF0', background: '#fff', color: '#7A7F99', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                    Cancel
+                  </button>
+                  <button onClick={handleInfoSave} disabled={infoSaving} style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: '#1A2F5A', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {infoSaving && <span style={{ width: 12, height: 12, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'cdvSpin 0.6s linear infinite' }} />}
+                    {infoSaving ? 'Saving...' : 'Save & Continue →'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* DOCUMENTS TAB */}
           {activeTab === 'documents' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -1874,26 +1661,36 @@ export default function ClientDetailView() {
                 <div style={S.empty}>
                   <div style={S.emptyIcon}>⚖️</div>
                   <p>No {caseType === 'income-tax' ? 'Income Tax' : 'TDS'} case logged yet.</p>
-                  <button type="button" className="cdv-primary-btn" style={{ ...S.addCaseBtn, marginTop: 12 }} onClick={handleAddCase} disabled={creatingCase}>
-                    {creatingCase ? 'Creating...' : 'Add Case'}
-                  </button>
+                  {canAddCase && (  // ✅ only show for Maker/Admin/Founder/Manager
+                    <button 
+                      type="button" 
+                      className="cdv-primary-btn" 
+                      style={{ ...S.addCaseBtn, marginTop: 12 }} 
+                      onClick={handleAddCase} 
+                      disabled={creatingCase}
+                    >
+                      {creatingCase ? 'Creating...' : 'Add Case'}
+                    </button>
+                  )}
                 </div>
               )}
 
               {!activityLoading && activityCase && (
-                <ActivityTimeline
+                <ActivityTimelineV2
                   subServiceName={caseData?.sub_service_name}
                   activityCase={activityCase}
                   canEdit={canEditActivity}
+                  // canLogOutcome={canLogOutcome}
                   createdByFallback={caseData?.created_by_name}
-                  pendingReview={pendingReview}   
+                  pendingReview={pendingReview} 
+                  caseData={caseData}   
                   api={{
                     setDescription: (desc) => courtCaseApi.setDescription(activityCase.id, desc).then((r) => r.data),
                     addStep: (note) => courtCaseApi.addStep(activityCase.id, note).then((r) => r.data),
-                    submitAppeal: (id, payload) => courtCaseApi.submitAppeal(id, payload).then((r) => r.data),
-                    fileAppeal: (payload) => courtCaseApi.fileAppeal(activityCase.id, payload).then((r) => r.data),
-                    logAdjournment: (payload) => courtCaseApi.logAdjournment(activityCase.id, payload).then((r) => r.data),
-                    logOutcome: (payload) => courtCaseApi.logOutcome(activityCase.id, payload).then((r) => r.data),
+                    // submitAppeal: (id, payload) => courtCaseApi.submitAppeal(id, payload).then((r) => r.data),
+                    // fileAppeal: (payload) => courtCaseApi.fileAppeal(activityCase.id, payload).then((r) => r.data),
+                    // logAdjournment: (payload) => courtCaseApi.logAdjournment(activityCase.id, payload).then((r) => r.data),
+                    // logOutcome: (payload) => courtCaseApi.logOutcome(activityCase.id, payload).then((r) => r.data),
                   }}
                   onUpdated={(updated) => {
                     if (updated && typeof updated === 'object') {
@@ -2043,28 +1840,53 @@ export default function ClientDetailView() {
                     </div>
 
                     <div style={{ padding: '4px 20px 12px' }}>
-                      {[
-                        ['Reference No.', caseData.reference_no],
-                        ['Task ID', caseData.task_id_display || caseData.task_id],
-                        ['Sub-Service', caseData.sub_service_name],
-                        ['Status', (() => {
-                          const s = caseData.computed_status || caseData.activity_status || 'wip';
-                          const meta = STATUS_META[s] || STATUS_META.wip;
-                          return (
-                            <span style={{
-                              fontSize: 10, padding: '2px 9px', borderRadius: 99,
-                              fontWeight: 700, background: meta.bg, color: meta.color,
-                            }}>
-                              {meta.label}
-                            </span>
-                          );
-                        })()],
-                        ['Created By', caseData.created_by_name],
-                        ['Assessment Year', caseData.assessment_year],
-                        ['Period', caseData.period],
-                        ['Notice Date', fmtDate(caseData.notice_date)],
-                        ['Due Date', fmtDate(caseData.due_date)],
-                      ].map(([label, value], idx, arr) => (
+                      {(linkedTask
+                        ? [
+                            // ── Task-sourced case: show Task table data ──
+                            ['Task ID',     linkedTask.task_id],
+                            ['Client',      linkedTask.client_name],
+                            ['Sub-Service', linkedTask.sub_service_name],
+                            ['SPOC',        linkedTask.spoc_name],
+                            ['Team',        linkedTask.team_name],
+                            ['Status', (() => {
+                              const meta = TASK_STATUS_META[linkedTask.status];
+                              return meta ? (
+                                <span style={{
+                                  fontSize: 10, padding: '2px 9px', borderRadius: 99,
+                                  fontWeight: 700, background: meta.bg, color: meta.color,
+                                }}>
+                                  {meta.label}
+                                </span>
+                              ) : '—';
+                            })()],
+                            ['Period',      linkedTask.period],
+                            ['Due Date',    fmtDate(linkedTask.due_date)],
+                            ['Created By',  linkedTask.created_by_name],
+                            ['Created At',  fmtDateTime(linkedTask.created_at)],
+                          ]
+                        : [
+                            // ── Manual case (New Case button): show Litigation data ──
+                            ['Reference No.',   caseData.reference_no],
+                            ['Sub-Service',     caseData.sub_service_name],
+                            ['Status', (() => {
+                              const s = caseData.computed_status || caseData.activity_status || 'wip';
+                              const meta = STATUS_META[s] || STATUS_META.wip;
+                              return (
+                                <span style={{
+                                  fontSize: 10, padding: '2px 9px', borderRadius: 99,
+                                  fontWeight: 700, background: meta.bg, color: meta.color,
+                                }}>
+                                  {meta.label}
+                                </span>
+                              );
+                            })()],
+                            ['Created By',      caseData.created_by_name],
+                            ['Assessment Year', caseData.assessment_year],
+                            ['Period',          caseData.period],
+                            ['Notice Date',     fmtDate(caseData.notice_date)],
+                            ['Due Date',        fmtDate(caseData.due_date)],
+                          ]
+                      ).map(([label, value], idx, arr) => (
                         <div key={label} style={{
                           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                           padding: '11px 0',
@@ -2082,11 +1904,14 @@ export default function ClientDetailView() {
                             maxWidth: '55%',
                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                           }}>
-                            {typeof value === 'string' || typeof value === 'number' ? (value || '—') : value}
+                            {typeof value === 'string' || typeof value === 'number'
+                              ? (value || '—')
+                              : value}
                           </span>
                         </div>
                       ))}
                     </div>
+
                   </div>
                 </div>
               ) : (
@@ -2105,11 +1930,12 @@ export default function ClientDetailView() {
                 <p>No case yet — add one in the Activity tab to enable reviews.</p>
               </div>
             ) : (
-              <ReviewTab
+              <ReviewTabV2
                 clientId={clientId}
                 courtCaseId={activityCase.id}
                 litigationType={activityLitigationType}
                 refreshTick={refreshTick}
+                caseData={caseData}
               />
             )
           )}

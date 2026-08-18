@@ -98,6 +98,74 @@ function AttentionPanel({ jobs, onJobClick }) {
   );
 }
 
+
+// ══════════════════════════════════════════════════════════════════════
+// open JOBS PANEL
+// ══════════════════════════════════════════════════════════════════════
+
+
+function OpenJobsPanel({ jobs, onJobClick }) {
+  if (jobs.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: '24px 0', color: MUT }}>
+        <div style={{ fontSize: 28, opacity: 0.3, marginBottom: 8 }}>📂</div>
+        <div style={{ fontSize: 12, fontWeight: 500 }}>No open cases</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {jobs.map((job) => (
+        <div
+          key={job.id || job.client}
+          onClick={() => onJobClick(job)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '9px 12px', borderRadius: 10,
+            border: `1px solid ${BRD}`, background: WH,
+            cursor: 'pointer', transition: 'all .15s',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = '#0ea5e9';
+            e.currentTarget.style.background = '#E0F2FE';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = BRD;
+            e.currentTarget.style.background = WH;
+          }}
+        >
+          <div style={{
+            width: 6, height: 6, borderRadius: '50%',
+            background: '#0ea5e9', flexShrink: 0,
+          }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{
+              fontSize: 12, fontWeight: 600, color: '#1C1E2E',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {job.client_name}
+            </div>
+            <div style={{ fontSize: 10, color: MUT, marginTop: 1 }}>
+              {job.sub_service_name || '—'}
+              {job.next_hearing_date && (
+                <span style={{ marginLeft: 6, color: '#0ea5e9', fontWeight: 600 }}>
+                  📅 {new Date(job.next_hearing_date).toLocaleDateString('en-IN', {
+                    day: '2-digit', month: 'short', year: 'numeric'
+                  })}
+                </span>
+              )}
+            </div>
+          </div>
+          <Pill status="open" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+
+
 // ══════════════════════════════════════════════════════════════════════
 // RECENT JOBS PANEL
 // ══════════════════════════════════════════════════════════════════════
@@ -224,8 +292,7 @@ export default function LitigationDashboard({
   useEffect(() => { fetchCases(); fetchReviews(); // eslint-disable-next-line
   }, []);
 
-  const isAdmin = user?.role === 'Admin' || user?.role === 'Founder' || user?.role === 'Manager';
-  const canAddNewCase = isAdmin;
+  const canAddNewCase = ['Founder', 'Manager', 'Team Lead'].includes(user?.role);
 
   const handleCreated = (createdCase) => {
     fetchCases();
@@ -247,7 +314,9 @@ export default function LitigationDashboard({
   // Counts
   const totalJobs = cases.length;
   const wipJobs = cases.filter(c => getEffectiveStatus(c) === 'wip').length;
-  const openJobs = cases.filter(c => getEffectiveStatus(c) === 'open').length;
+  const openCases = cases.filter(c => getEffectiveStatus(c) === 'open');
+  const openJobs = openCases.length;
+
   const closedJobs = cases.filter(c => getEffectiveStatus(c) === 'closed').length;
   const attentionJobs = cases.filter(c => getEffectiveStatus(c) === 'attention_required');
   const activeJobs = cases.filter(c => getEffectiveStatus(c) !== 'closed').length;
@@ -349,9 +418,9 @@ export default function LitigationDashboard({
           {canAddNewCase && CaseModal && (
             <button onClick={() => setModalOpen(true)}
               style={{
-                padding: '8px 16px', borderRadius: 10, border: `1.5px solid ${BRD}`,
-                background: WH, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                color: '#1C1E2E', fontFamily: 'inherit',
+                padding: '8px 16px', borderRadius: 10, border: `1.5px solid ${P}`,
+                background: P, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                color: WH, fontFamily: 'inherit',
               }}>
               + New Case
             </button>
@@ -414,13 +483,13 @@ export default function LitigationDashboard({
         ))}
       </div>
 
-      {/* Bottom Panels — My Pending Task + Recent Jobs */}
+      {/* Bottom Panels */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',  // ← auto fit 3
         gap: 16,
       }}>
-        {/* My Pending Task Panel — user-specific (Maker/Checker/CEO scoped) */}
+        {/* My Pending Task */}
         <div style={{
           background: WH, border: `1.5px solid ${BRD}`, borderRadius: 16,
           padding: 22, display: 'flex', flexDirection: 'column', height: 360,
@@ -433,13 +502,12 @@ export default function LitigationDashboard({
               fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
               letterSpacing: '.08em', color: MUT,
             }}>
-              My pending task
+              My Pending Task
             </div>
             {myPendingTasks.length > 0 && (
               <span style={{
                 background: RED, color: WH, borderRadius: 99,
                 padding: '2px 9px', fontSize: 11, fontWeight: 700,
-                minWidth: 22, textAlign: 'center',
               }}>
                 {myPendingTasks.length}
               </span>
@@ -450,7 +518,36 @@ export default function LitigationDashboard({
           </div>
         </div>
 
-        {/* Recent Jobs Panel */}
+        {/* ✅ NEW — Open Jobs */}
+        <div style={{
+          background: WH, border: `1.5px solid ${BRD}`, borderRadius: 16,
+          padding: 22, display: 'flex', flexDirection: 'column', height: 360,
+        }}>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            marginBottom: 14, flexShrink: 0,
+          }}>
+            <div style={{
+              fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
+              letterSpacing: '.08em', color: MUT,
+            }}>
+              Open Jobs
+            </div>
+            {openCases.length > 0 && (
+              <span style={{
+                background: '#0ea5e9', color: WH, borderRadius: 99,
+                padding: '2px 9px', fontSize: 11, fontWeight: 700,
+              }}>
+                {openCases.length}
+              </span>
+            )}
+          </div>
+          <div style={{ overflowY: 'auto', flex: 1 }}>
+            <OpenJobsPanel jobs={openCases} onJobClick={goToClient} />
+          </div>
+        </div>
+
+        {/* Recent Jobs */}
         <div style={{
           background: WH, border: `1.5px solid ${BRD}`, borderRadius: 16,
           padding: 22, display: 'flex', flexDirection: 'column', height: 360,

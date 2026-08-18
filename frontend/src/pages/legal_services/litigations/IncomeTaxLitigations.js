@@ -1,47 +1,4 @@
 
-// import { useNavigate } from 'react-router-dom';
-// import LitigationJobListView from '../LitigationJobListView';
-// import { incomeTaxLitigationApi } from '../../../services/api';
-// import IncomeTaxCaseModal from './IncomeTaxCaseModal';
-
-// export default function IncomeTaxLitigations() {
-//   const navigate = useNavigate();
-//   return (
-//     <LitigationJobListView
-//       title="IncometaxLitigation"
-//       subtitle="Income Tax Litigations — all cases"
-//       api={incomeTaxLitigationApi}
-//       CaseModal={IncomeTaxCaseModal}
-//       caseType="income-tax-litigations"
-//       breadcrumbs={[
-//         { label: 'Litigations', path: '/legal-services/litigations' },
-//         { label: 'Dashboard', path: '/legal-services/litigations/income-tax' },
-//       ]}
-//       clientPath={(c) => `/legal-services/clients/${c.client}?type=income-tax`}
-//       onCreated={(createdCase) => {
-//         if (createdCase?.client) {
-//           navigate(`/legal-services/clients/${createdCase.client}?type=income-tax`);
-//         }
-//       }}
-//     />
-//   );
-// }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // IncomeTaxLitigations.js — Thin wrapper using LitigationJobListView
 
 import LitigationJobListView from '../LitigationJobListView';

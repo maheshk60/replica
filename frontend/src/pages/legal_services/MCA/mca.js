@@ -12,6 +12,7 @@ const ITEMS = [
     color: '#1A2F5A',
     light: '#EEF3FC',
     built: true,
+    comingSoon: true,
     stats: [
       { label: 'Total Jobs', value: 0, color: '#1A2F5A' },
       { label: 'Active',     value: 0, color: '#0D6B52' },
@@ -27,6 +28,7 @@ const ITEMS = [
     color: '#7C3AED',
     light: '#EDE9FE',
     built: true,
+    comingSoon: true,
     stats: [
       { label: 'Total Jobs', value: 0, color: '#7C3AED' },
       { label: 'Active',     value: 0, color: '#0D6B52' },
@@ -42,6 +44,7 @@ const ITEMS = [
     color: '#0369A1',
     light: '#E0F2FE',
     built: true,
+    comingSoon: true,
     stats: [
       { label: 'Total Jobs', value: 0, color: '#0369A1' },
       { label: 'Active',     value: 0, color: '#0D6B52' },
@@ -57,6 +60,7 @@ const ITEMS = [
     color: '#0D6B52',
     light: '#E8F7F3',
     built: true,
+    comingSoon: true,
     stats: [
       { label: 'Total Jobs', value: 0, color: '#0D6B52' },
       { label: 'Active',     value: 0, color: '#0D6B52' },
@@ -72,6 +76,7 @@ const ITEMS = [
     color: '#92400E',
     light: '#FFF8E8',
     built: true,
+    comingSoon: true,
     stats: [
       { label: 'Total Jobs', value: 0, color: '#92400E' },
       { label: 'Active',     value: 0, color: '#0D6B52' },
@@ -87,6 +92,7 @@ const ITEMS = [
     color: '#B45309',
     light: '#FEF3C7',
     built: true,
+    comingSoon: true,
     stats: [
       { label: 'Total Jobs', value: 0, color: '#B45309' },
       { label: 'Active',     value: 0, color: '#0D6B52' },
@@ -102,6 +108,7 @@ const ITEMS = [
     color: '#4A3FA8',
     light: '#EDEAFB',
     built: true,
+    comingSoon: true,
     stats: [
       { label: 'Total Jobs', value: 0, color: '#4A3FA8' },
       { label: 'Active',     value: 0, color: '#0D6B52' },
@@ -117,6 +124,7 @@ const ITEMS = [
     color: '#BE185D',
     light: '#FCE7F3',
     built: true,
+    comingSoon: true,
     stats: [
       { label: 'Total Jobs', value: 0, color: '#BE185D' },
       { label: 'Active',     value: 0, color: '#0D6B52' },
@@ -132,6 +140,7 @@ const ITEMS = [
     color: '#047857',
     light: '#D1FAE5',
     built: true,
+    comingSoon: true,
     stats: [
       { label: 'Total Jobs', value: 0, color: '#047857' },
       { label: 'Active',     value: 0, color: '#0D6B52' },
