@@ -13,14 +13,14 @@ from django.utils import timezone
 from .models import (
     TDSLitigation, IncomeTaxLitigation, MCACase, FEMACase, PartnershipCase,
     LegalCaseAuditLog, DocumentCategory, ClientCustomDocument,
-    CourtCase, CourtCaseStatusLog, ReviewRequest,CaseNotice, NoticeDocument, NoticeReply,
+    CourtCase, CourtCaseStatusLog, ReviewRequest,CaseNotice, NoticeDocument, NoticeReply,CaseClosureDocument,
 )
 from .serializers import (
     TDSLitigationSerializer, IncomeTaxLitigationSerializer,
     MCACaseSerializer, FEMACaseSerializer, PartnershipCaseSerializer,
     LegalCaseAuditLogSerializer,
     DocumentCategorySerializer, ClientCustomDocumentSerializer,
-    CourtCaseSerializer,
+    CourtCaseSerializer,CaseClosureDocumentSerializer,
     ReviewRequestSerializer,CaseNoticeSerializer, NoticeDocumentSerializer, NoticeReplySerializer,
 )
 from .permissions import (
@@ -1043,9 +1043,6 @@ def _update_notice_status_from_workflow(notice):
     - WIP: default state
     - Closed: manually set (not touched here)
     """
-    # Don't touch closed notices
-    if notice.status == 'closed':
-        return
 
     # Check for pending items
     has_pending_reply = notice.replies.filter(
@@ -1334,12 +1331,66 @@ class CaseNoticeViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     parser_classes     = [MultiPartParser, FormParser, JSONParser]
 
+    # def get_queryset(self):
+    #     qs = CaseNotice.objects.prefetch_related('documents').all()
+    #     court_case_id = self.request.query_params.get('court_case')
+    #     if court_case_id:
+    #         qs = qs.filter(court_case_id=court_case_id)
+    #     return qs
+
+    # def perform_create(self, serializer):
+    #     user     = self.request.user
+    #     instance = serializer.save(created_by=user)
+    #     log_event(
+    #         client_id=instance.court_case.client_id,
+    #         litigation_type=instance.court_case.litigation_type,
+    #         court_case=instance.court_case,
+    #         job_id=instance.court_case.job_id,
+    #         event_type='notice_created',
+    #         title=f'Notice created — DIN: {instance.din_number or "N/A"}',
+    #         user=user,
+    #         new_values={
+    #             'din_number':  instance.din_number,
+    #             'officer':     instance.officer,
+    #             'notice_date': str(instance.notice_date) if instance.notice_date else None,
+    #             'due_date':    str(instance.due_date) if instance.due_date else None,
+    #         }
+    #     )
+
     def get_queryset(self):
-        qs = CaseNotice.objects.prefetch_related('documents').all()
-        court_case_id = self.request.query_params.get('court_case')
+        qs = CaseNotice.objects.select_related(
+            'court_case', 'court_case__client', 'created_by', 'reviewed_by'
+        ).prefetch_related('documents', 'replies').all()
+
+        court_case_id   = self.request.query_params.get('court_case')
+        litigation_type = self.request.query_params.get('litigation_type')   
+        client_id       = self.request.query_params.get('client')            
+        job_id          = self.request.query_params.get('job_id')
+
         if court_case_id:
             qs = qs.filter(court_case_id=court_case_id)
-        return qs
+        if litigation_type:                                                    
+            qs = qs.filter(court_case__litigation_type=litigation_type)
+        if client_id:                                                          
+            qs = qs.filter(court_case__client_id=client_id)
+        if job_id:                                                      
+            qs = qs.filter(court_case__job_id=job_id)
+
+        # ✅ Role-based filtering: non-admins see only assigned cases
+        user = self.request.user
+        if not is_admin_role(user):
+            tds_client_ids = TDSLitigation.objects.filter(
+                Q(makers=user) | Q(checkers=user)
+            ).values_list('client_id', flat=True)
+            it_client_ids = IncomeTaxLitigation.objects.filter(
+                Q(makers=user) | Q(checkers=user)
+            ).values_list('client_id', flat=True)
+            qs = qs.filter(
+                Q(court_case__litigation_type='tds', court_case__client_id__in=tds_client_ids) |
+                Q(court_case__litigation_type='income-tax', court_case__client_id__in=it_client_ids)
+            ).distinct()
+
+        return qs.order_by('-created_at')
 
     def perform_create(self, serializer):
         user     = self.request.user
@@ -1360,6 +1411,9 @@ class CaseNoticeViewSet(viewsets.ModelViewSet):
             }
         )
 
+
+
+
     @action(detail=True, methods=['post'], url_path='set-status')
     def set_status(self, request, pk=None):
         notice     = self.get_object()
@@ -1369,7 +1423,7 @@ class CaseNoticeViewSet(viewsets.ModelViewSet):
         if not is_high_admin(user):
             return Response({'error': 'Only Founder can set notice status.'}, status=403)
 
-        if new_status not in ['wip', 'open', 'closed']:
+        if new_status not in ['wip', 'open']:   # ✅ Removed 'closed'
             return Response({'error': 'Invalid status.'}, status=400)
 
         old_status    = notice.status
@@ -1630,6 +1684,38 @@ class CaseNoticeViewSet(viewsets.ModelViewSet):
         })
 
 
+    @action(detail=True, methods=['post'], url_path='submit-docs')
+    def submit_docs(self, request, pk=None):
+        """Moves all 'draft' documents in this notice to 'pending' review state."""
+        notice = self.get_object()
+        user = request.user
+
+        if not (is_case_maker(notice.court_case, user) or is_admin_role(user)):
+            return Response({'error': 'Only Maker can submit documents.'}, status=403)
+
+        drafts = notice.documents.filter(review_status='draft')
+        count = drafts.count()
+
+        if count == 0:
+            return Response({'error': 'No draft documents to submit.'}, status=400)
+
+        drafts.update(review_status='pending')
+        
+        _update_notice_status_from_workflow(notice)
+
+        log_event(
+            client_id=notice.court_case.client_id,
+            litigation_type=notice.court_case.litigation_type,
+            court_case=notice.court_case,
+            job_id=notice.court_case.job_id,
+            event_type='doc_upload',
+            title=f'{count} document(s) submitted for review',
+            user=user,
+            new_values={'notice_din': notice.din_number}
+        )
+
+        return Response(self.get_serializer(notice).data)
+
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1644,6 +1730,10 @@ class NoticeDocumentViewSet(viewsets.ModelViewSet):
         qs        = NoticeDocument.objects.all()
         notice_id = self.request.query_params.get('notice')
         doc_type  = self.request.query_params.get('doc_type')
+        job_id = self.request.query_params.get('job_id')
+
+        if job_id:
+            qs = qs.filter(notice__court_case__job_id=job_id)
         if notice_id:
             qs = qs.filter(notice_id=notice_id)
         if doc_type:
@@ -1654,18 +1744,19 @@ class NoticeDocumentViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         user = self.request.user
         doc_type = serializer.validated_data.get('doc_type', 'pending')
+        reply_version = self.request.data.get('reply_version')
 
-        # ✅ Court Notice → no review needed; Acknowledgment → pending review
+        # Court Notice needs no review; everything else starts as DRAFT
         if doc_type == 'court_notice':
             review_status = 'not_applicable'
         else:
-            review_status = 'pending'
+            review_status = 'draft'  # ✅ Changed from 'pending'
 
         instance = serializer.save(
             uploaded_by=user,
             review_status=review_status,
+            reply_version=reply_version if reply_version else None
         )
-
        
         if doc_type == 'court_notice':
             log_event(
@@ -1685,6 +1776,217 @@ class NoticeDocumentViewSet(viewsets.ModelViewSet):
         if doc_type == 'acknowledgment':
             _update_notice_status_from_workflow(instance.notice)
 
+    # def perform_destroy(self, instance):
+    #     from rest_framework.exceptions import PermissionDenied
+    #     user = self.request.user
+    #     notice = instance.notice
+    #     court_case = notice.court_case
+        
+    #     # ✅ Delete rules:
+    #     # - Court Notice: ONLY assigned Maker can delete
+    #     # - Acknowledgment (rejected, own): Maker can delete (to re-upload)
+    #     # - Approved Reply: NO ONE can delete (permanent record)
+    #     # - Approved Acknowledgment: NO ONE can delete (permanent record)
+    #     # - Pending/escalated ack/reply: Not deletable (goes through review workflow)
+        
+    #     is_court_notice = instance.doc_type == 'court_notice'
+    #     is_maker = is_case_maker(court_case, user)
+        
+    #     # Court Notice → only Maker can delete
+    #     if is_court_notice:
+    #         if not is_maker:
+    #             raise PermissionDenied('Only the assigned Maker can delete the Court Notice.')
+        
+    #     # Rejected acknowledgment (own) → Maker can delete for re-upload
+    #     elif (
+    #         instance.doc_type == 'acknowledgment'
+    #         and instance.review_status == 'rejected'
+    #         and instance.uploaded_by == user
+    #     ):
+    #         pass  # Allow
+        
+    #     # Everything else → BLOCKED (approved replies, approved acks, pending files)
+    #     else:
+    #         raise PermissionDenied('This document cannot be deleted.')
+        
+    #     log_event(
+    #         client_id=court_case.client_id,
+    #         litigation_type=court_case.litigation_type,
+    #         court_case=court_case,
+    #         job_id=court_case.job_id,
+    #         event_type='notice_doc_deleted',
+    #         title=f'Document deleted — {instance.file_name} ({instance.doc_type})',
+    #         user=user,
+    #         old_values={
+    #             'file_name': instance.file_name,
+    #             'doc_type': instance.doc_type,
+    #         },
+    #     )
+        
+    #     # ✅ Delete physical file from media folder
+    #     if instance.file:
+    #         try:
+    #             instance.file.delete(save=False)
+    #         except Exception:
+    #             pass
+        
+    #     instance.delete()
+
+
+
+    # @action(detail=True, methods=['post'], url_path='approve')
+    # def approve(self, request, pk=None):
+    #     doc = self.get_object()
+    #     user = request.user
+
+    #     if not (is_case_checker(doc.notice.court_case, user) or is_high_admin(user)):
+    #         return Response({'error': 'Only Checker or Founder can approve.'}, status=403)
+
+    #     if doc.review_status not in ('pending', 'escalated'):
+    #         return Response({'error': 'Cannot approve this document.'}, status=400)
+
+    #     # Store original doc_type before changing
+    #     original_doc_type = doc.doc_type
+    #     doc.review_status = 'approved'
+    #     doc.reviewed_by = user
+    #     doc.reviewed_at = timezone.now()
+
+    #     # If it's a "pending" reply doc (old flow), promote to reply
+    #     if doc.doc_type == 'pending':
+    #         doc.doc_type = 'reply'
+
+    #     doc.save()
+
+    #     notice = doc.notice
+    #     _update_notice_status_from_workflow(notice)
+
+
+    #     # ✅ Log approval — clear title per doc type
+    #     doc_type_labels = {
+    #         'acknowledgment': 'Acknowledgment approved',
+    #         'reply': 'Reply document approved',
+    #         'pending': 'Document approved',
+    #     }
+    #     title_prefix = doc_type_labels.get(original_doc_type, 'Document approved')
+
+    #     log_event(
+    #         client_id=notice.court_case.client_id,
+    #         litigation_type=notice.court_case.litigation_type,
+    #         court_case=notice.court_case,
+    #         job_id=notice.court_case.job_id,
+    #         event_type='doc_upload',
+    #         title=f'{title_prefix} — {doc.file_name}',
+    #         user=user,
+    #         new_values={
+    #             'file_name': doc.file_name,
+    #             'notice_din': notice.din_number,
+    #         },
+    #     )
+    #     return Response(NoticeDocumentSerializer(doc, context={'request': request}).data)
+
+
+    # @action(detail=True, methods=['post'], url_path='reject')
+    # def reject(self, request, pk=None):
+    #     doc = self.get_object()
+    #     user = request.user
+    #     reason = (request.data.get('reason') or '').strip()
+
+    #     if not (is_case_checker(doc.notice.court_case, user) or is_high_admin(user)):
+    #         return Response({'error': 'Only Checker or Founder can reject.'}, status=403)
+
+    #     if not reason:
+    #         return Response({'error': 'Rejection reason is required.'}, status=400)
+
+    #     if doc.review_status not in ('pending', 'escalated'):
+    #         return Response({'error': 'Cannot reject this document.'}, status=400)
+
+    #     original_doc_type = doc.doc_type
+    #     doc.review_status = 'rejected'
+    #     doc.reviewed_by = user
+    #     doc.reviewed_at = timezone.now()
+    #     doc.review_note = reason
+    #     doc.save()
+
+    #     notice = doc.notice
+    #     _update_notice_status_from_workflow(notice)
+
+    #     # ✅ Log rejection — clear title per doc type
+    #     doc_type_labels = {
+    #         'acknowledgment': 'Acknowledgment rejected',
+    #         'reply': 'Reply document rejected',
+    #         'pending': 'Document rejected',
+    #     }
+    #     title_prefix = doc_type_labels.get(original_doc_type, 'Document rejected')
+
+    #     log_event(
+    #         client_id=notice.court_case.client_id,
+    #         litigation_type=notice.court_case.litigation_type,
+    #         court_case=notice.court_case,
+    #         job_id=notice.court_case.job_id,
+    #         event_type='doc_delete',  # use doc_delete style (red) for rejections
+    #         title=f'{title_prefix} — {doc.file_name}',
+    #         user=user,
+    #         new_values={
+    #             'file_name': doc.file_name,
+    #             'rejection_reason': reason,
+    #             'notice_din': notice.din_number,
+    #         },
+    #     )
+    #     return Response(NoticeDocumentSerializer(doc, context={'request': request}).data)
+
+    def perform_destroy(self, instance):
+        from rest_framework.exceptions import PermissionDenied
+        user = self.request.user
+        notice = instance.notice
+        court_case = notice.court_case
+        
+        is_court_notice = instance.doc_type == 'court_notice'
+        is_maker = is_case_maker(court_case, user)
+        
+        # Court Notice → only Maker can delete
+        if is_court_notice:
+            if not is_maker:
+                raise PermissionDenied('Only the assigned Maker can delete the Court Notice.')
+        
+        # ✅ Rejected acknowledgment OR uploaded reply (own) → Maker can delete for re-upload
+        elif (
+            instance.doc_type in ('acknowledgment', 'pending', 'pending_support')
+            and instance.review_status in ('rejected', 'draft')  # ✅ Added 'draft'
+            and instance.uploaded_by == user
+        ):
+            # If deleting the main reply, auto-delete its supporting docs too
+            if instance.doc_type == 'pending':
+                NoticeDocument.objects.filter(
+                    notice=notice,
+                    reply_version=instance.reply_version,
+                    doc_type='pending_support'
+                ).delete()
+            pass  # Allow deletion
+        
+        # Everything else → BLOCKED
+        else:
+            raise PermissionDenied('This document cannot be deleted.')
+        
+        log_event(
+            client_id=court_case.client_id,
+            litigation_type=court_case.litigation_type,
+            court_case=court_case,
+            job_id=court_case.job_id,
+            event_type='notice_doc_deleted',
+            title=f'Document deleted — {instance.file_name} ({instance.doc_type})',
+            user=user,
+            old_values={'file_name': instance.file_name, 'doc_type': instance.doc_type},
+        )
+        
+        if instance.file:
+            try:
+                instance.file.delete(save=False)
+            except Exception:
+                pass
+        
+        instance.delete()
+
+
     @action(detail=True, methods=['post'], url_path='approve')
     def approve(self, request, pk=None):
         doc = self.get_object()
@@ -1696,29 +1998,31 @@ class NoticeDocumentViewSet(viewsets.ModelViewSet):
         if doc.review_status not in ('pending', 'escalated'):
             return Response({'error': 'Cannot approve this document.'}, status=400)
 
-        # Store original doc_type before changing
         original_doc_type = doc.doc_type
         doc.review_status = 'approved'
         doc.reviewed_by = user
         doc.reviewed_at = timezone.now()
 
-        # If it's a "pending" reply doc (old flow), promote to reply
+        # ✅ If approving a Reply bundle, approve its supporting docs too!
         if doc.doc_type == 'pending':
             doc.doc_type = 'reply'
+            NoticeDocument.objects.filter(
+                notice=doc.notice, 
+                reply_version=doc.reply_version, 
+                doc_type='pending_support'
+            ).update(
+                doc_type='supporting_doc',
+                review_status='approved',
+                reviewed_by=user,
+                reviewed_at=doc.reviewed_at
+            )
 
         doc.save()
 
         notice = doc.notice
         _update_notice_status_from_workflow(notice)
 
-
-        # ✅ Log approval — clear title per doc type
-        doc_type_labels = {
-            'acknowledgment': 'Acknowledgment approved',
-            'reply': 'Reply document approved',
-            'pending': 'Document approved',
-        }
-        title_prefix = doc_type_labels.get(original_doc_type, 'Document approved')
+        title_prefix = 'Reply bundle approved' if original_doc_type == 'pending' else 'Document approved'
 
         log_event(
             client_id=notice.court_case.client_id,
@@ -1728,10 +2032,7 @@ class NoticeDocumentViewSet(viewsets.ModelViewSet):
             event_type='doc_upload',
             title=f'{title_prefix} — {doc.file_name}',
             user=user,
-            new_values={
-                'file_name': doc.file_name,
-                'notice_din': notice.din_number,
-            },
+            new_values={'file_name': doc.file_name, 'notice_din': notice.din_number},
         )
         return Response(NoticeDocumentSerializer(doc, context={'request': request}).data)
 
@@ -1758,34 +2059,35 @@ class NoticeDocumentViewSet(viewsets.ModelViewSet):
         doc.review_note = reason
         doc.save()
 
+        # ✅ If rejecting a Reply bundle, mark its supporting docs rejected too!
+        if original_doc_type == 'pending':
+            NoticeDocument.objects.filter(
+                notice=doc.notice, 
+                reply_version=doc.reply_version, 
+                doc_type='pending_support'
+            ).update(
+                review_status='rejected',
+                review_note=reason,
+                reviewed_by=user,
+                reviewed_at=doc.reviewed_at
+            )
+
         notice = doc.notice
         _update_notice_status_from_workflow(notice)
 
-        # ✅ Log rejection — clear title per doc type
-        doc_type_labels = {
-            'acknowledgment': 'Acknowledgment rejected',
-            'reply': 'Reply document rejected',
-            'pending': 'Document rejected',
-        }
-        title_prefix = doc_type_labels.get(original_doc_type, 'Document rejected')
+        title_prefix = 'Reply bundle rejected' if original_doc_type == 'pending' else 'Document rejected'
 
         log_event(
             client_id=notice.court_case.client_id,
             litigation_type=notice.court_case.litigation_type,
             court_case=notice.court_case,
             job_id=notice.court_case.job_id,
-            event_type='doc_delete',  # use doc_delete style (red) for rejections
+            event_type='doc_delete',
             title=f'{title_prefix} — {doc.file_name}',
             user=user,
-            new_values={
-                'file_name': doc.file_name,
-                'rejection_reason': reason,
-                'notice_din': notice.din_number,
-            },
+            new_values={'file_name': doc.file_name, 'rejection_reason': reason, 'notice_din': notice.din_number},
         )
         return Response(NoticeDocumentSerializer(doc, context={'request': request}).data)
-
-
 
     @action(detail=True, methods=['post'], url_path='escalate')
     def escalate(self, request, pk=None):
@@ -1812,65 +2114,34 @@ class NoticeDocumentViewSet(viewsets.ModelViewSet):
         )
         return Response(NoticeDocumentSerializer(doc, context={'request': request}).data)
 
-    # def perform_destroy(self, instance):
-    #     # user = self.request.user
-    #     # if instance.doc_type == 'pending' and instance.review_status == 'rejected':
-    #     #     if instance.uploaded_by != user and not is_high_admin(user):
-    #     #         from rest_framework.exceptions import PermissionDenied
-    #     #         raise PermissionDenied('You can only delete your own rejected documents.')
-    #     # elif not is_high_admin(user):
-    #     #     from rest_framework.exceptions import PermissionDenied
-    #     #     raise PermissionDenied('Only Founder can delete this document.')
-    #     instance.delete()
-
-
-
-    def perform_destroy(self, instance):
-        from rest_framework.exceptions import PermissionDenied
-        user = self.request.user
-        
-        # ✅ Maker can delete their own rejected ack files (to reupload)
-        is_rejected_own_ack = (
-            instance.doc_type == 'acknowledgment' 
-            and instance.review_status == 'rejected' 
-            and instance.uploaded_by == user
-        )
-        
-        # ✅ Only CEO can delete other files (or own rejected ack)
-        if not is_rejected_own_ack and not is_founder(user):
-            raise PermissionDenied('Only CEO/Founder can delete this document.')
-        
-        log_event(
-            client_id=instance.notice.court_case.client_id,
-            litigation_type=instance.notice.court_case.litigation_type,
-            court_case=instance.notice.court_case,
-            job_id=instance.notice.court_case.job_id,
-            event_type='notice_doc_deleted',
-            title=f'Document deleted — {instance.file_name} ({instance.doc_type})',
-            user=user,
-            old_values={
-                'file_name': instance.file_name,
-                'doc_type': instance.doc_type,
-            },
-        )
-        
-        instance.delete()
-
+    
+    
 
 # ── Helper ──────────────────────────────────────────────────────────
+
 def _recompute_court_case_status(court_case):
+    """
+    Recomputes court case status from notices.
+    NOTE: Case 'closed' is set ONLY via closure bundle workflow (CaseClosureBundleView).
+    Notices only have wip/open/under_review now.
+    """
+    # ✅ Never touch a closed case
+    if court_case.status == 'closed':
+        return
+
     notices = court_case.notices.all()
     if not notices.exists():
         return
+
     statuses = set(n.status for n in notices)
-    if 'wip' in statuses:
+
+    if 'wip' in statuses or 'under_review' in statuses:
         new_status = 'wip'
-    elif statuses <= {'open', 'closed'}:
+    elif statuses == {'open'}:
         new_status = 'open'
-    elif statuses == {'closed'}:
-        new_status = 'closed'
     else:
         new_status = 'wip'
+
     if court_case.status != new_status:
         court_case.status = new_status
         court_case.save(update_fields=['status', 'updated_at'])
@@ -1906,7 +2177,10 @@ class NoticeReplyViewSet(viewsets.ModelViewSet):
         notice_id = self.request.query_params.get('notice')
         court_case_id = self.request.query_params.get('court_case')
         status_filter = self.request.query_params.get('status')
+        job_id = self.request.query_params.get('job_id')
 
+        if job_id:
+            qs = qs.filter(notice__court_case__job_id=job_id)
         if notice_id:
             qs = qs.filter(notice_id=notice_id)
         if court_case_id:
@@ -1958,35 +2232,6 @@ class NoticeReplyViewSet(viewsets.ModelViewSet):
                 new_values={'title': saved.title},
             )
 
-    # ── Delete ───────────────────────────────────────────────
-    def perform_destroy(self, instance):
-        user = self.request.user
-        
-        # Cannot delete approved replies
-        if instance.status == 'approved':
-            from rest_framework.exceptions import PermissionDenied
-            raise PermissionDenied('Cannot delete an approved reply.')
-        
-        # Only creator or admin can delete drafts
-        if instance.status == 'draft' and instance.created_by != user:
-            if not is_high_admin(user):
-                from rest_framework.exceptions import PermissionDenied
-                raise PermissionDenied('You can only delete your own drafts.')
-
-        log_event(
-            client_id=instance.notice.court_case.client_id,
-            litigation_type=instance.notice.court_case.litigation_type,
-            court_case=instance.notice.court_case,
-            job_id=instance.notice.court_case.job_id,
-            event_type='notice_doc_deleted',
-            title=f'Reply deleted — {instance.title or "Untitled"}',
-            user=user,
-            old_values={
-                'reply_title': instance.title,
-                'status': instance.status,
-            },
-        )
-        instance.delete()
 
     # ══════════════════════════════════════════════════════════
     # ACTION — Send for Review (Maker)
@@ -2023,6 +2268,50 @@ class NoticeReplyViewSet(viewsets.ModelViewSet):
         return Response(self.get_serializer(reply).data)
 
 
+    # ── Delete ───────────────────────────────────────────────
+    def perform_destroy(self, instance):
+        user = self.request.user
+        
+        # Cannot delete approved replies
+        if instance.status == 'approved':
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Cannot delete an approved reply.')
+        
+        # Only creator or admin can delete drafts
+        if instance.status == 'draft' and instance.created_by != user:
+            if not is_high_admin(user):
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied('You can only delete your own drafts.')
+
+        # ✅ Auto-delete linked supporting documents (physical files too)
+        from .models import NoticeDocument
+        linked_supports = NoticeDocument.objects.filter(
+            notice=instance.notice,
+            doc_type__in=['pending_support', 'supporting_doc'],
+            reply_version=instance.id
+        )
+        for sup in linked_supports:
+            if sup.file:
+                try: sup.file.delete(save=False)
+                except: pass
+            sup.delete()
+
+        log_event(
+            client_id=instance.notice.court_case.client_id,
+            litigation_type=instance.notice.court_case.litigation_type,
+            court_case=instance.notice.court_case,
+            job_id=instance.notice.court_case.job_id,
+            event_type='notice_doc_deleted',
+            title=f'Reply deleted — {instance.title or "Untitled"}',
+            user=user,
+            old_values={
+                'reply_title': instance.title,
+                'status': instance.status,
+            },
+        )
+        instance.delete()
+
+
     # ══════════════════════════════════════════════════════════
     # ACTION — Approve (Checker or Founder)
     # ══════════════════════════════════════════════════════════
@@ -2030,6 +2319,8 @@ class NoticeReplyViewSet(viewsets.ModelViewSet):
     def approve(self, request, pk=None):
         reply = self.get_object()
         user = request.user
+        from django.utils import timezone
+        from .models import NoticeDocument
 
         if reply.status not in ('pending', 'escalated'):
             return Response(
@@ -2037,7 +2328,6 @@ class NoticeReplyViewSet(viewsets.ModelViewSet):
                 status=400,
             )
 
-        # Escalated replies can only be approved by Founder/Admin
         if reply.status == 'escalated' and not is_high_admin(user):
             return Response(
                 {'error': 'Only Admin/Founder can approve escalated replies.'},
@@ -2051,6 +2341,18 @@ class NoticeReplyViewSet(viewsets.ModelViewSet):
         reply.save(update_fields=[
             'status', 'reviewed_by', 'reviewed_at', 'review_note', 'updated_at'
         ])
+
+        # ✅ CASCADE: Approve attached supporting documents
+        NoticeDocument.objects.filter(
+            notice=reply.notice, 
+            doc_type='pending_support', 
+            reply_version=reply.id
+        ).update(
+            doc_type='supporting_doc',
+            review_status='approved',
+            reviewed_by=user,
+            reviewed_at=reply.reviewed_at
+        )
 
         log_event(
             client_id=reply.notice.court_case.client_id,
@@ -2069,6 +2371,7 @@ class NoticeReplyViewSet(viewsets.ModelViewSet):
         _update_notice_status_from_workflow(reply.notice)
         return Response(self.get_serializer(reply).data)
 
+
     # ══════════════════════════════════════════════════════════
     # ACTION — Reject (Checker or Founder)
     # ══════════════════════════════════════════════════════════
@@ -2077,6 +2380,8 @@ class NoticeReplyViewSet(viewsets.ModelViewSet):
         reply = self.get_object()
         user = request.user
         reason = (request.data.get('reason') or '').strip()
+        from django.utils import timezone
+        from .models import NoticeDocument
 
         if not reason:
             return Response({'error': 'Rejection reason is required.'}, status=400)
@@ -2087,7 +2392,6 @@ class NoticeReplyViewSet(viewsets.ModelViewSet):
                 status=400,
             )
 
-        # Escalated replies can only be rejected by Founder/Admin
         if reply.status == 'escalated' and not is_high_admin(user):
             return Response(
                 {'error': 'Only Admin/Founder can reject escalated replies.'},
@@ -2101,6 +2405,18 @@ class NoticeReplyViewSet(viewsets.ModelViewSet):
         reply.save(update_fields=[
             'status', 'review_note', 'reviewed_by', 'reviewed_at', 'updated_at'
         ])
+
+        # ✅ CASCADE: Reject attached supporting documents
+        NoticeDocument.objects.filter(
+            notice=reply.notice, 
+            doc_type='pending_support', 
+            reply_version=reply.id
+        ).update(
+            review_status='rejected',
+            review_note=reason,
+            reviewed_by=user,
+            reviewed_at=reply.reviewed_at
+        )
 
         log_event(
             client_id=reply.notice.court_case.client_id,
@@ -2118,6 +2434,8 @@ class NoticeReplyViewSet(viewsets.ModelViewSet):
         )
         _update_notice_status_from_workflow(reply.notice)
         return Response(self.get_serializer(reply).data)
+
+
 
     # ══════════════════════════════════════════════════════════
     # ACTION — Escalate to CEO (Checker only)
@@ -2218,3 +2536,342 @@ class ReplyImageUploadView(APIView):
         full_url = request.build_absolute_uri(url)
 
         return Response({'url': full_url})
+
+
+
+
+
+
+
+# ═══════════════════════════════════════════════════════════════════
+# CASE CLOSURE DOCUMENT VIEWSET
+# Handles individual file upload/delete for Order, Demand Notice, Computation Sheet.
+# Bundle-level review (submit/approve/reject/escalate) is handled by
+# CaseClosureBundleView below.
+# ═══════════════════════════════════════════════════════════════════
+class CaseClosureDocumentViewSet(viewsets.ModelViewSet):
+    serializer_class   = CaseClosureDocumentSerializer
+    permission_classes = [IsAuthenticated]
+    parser_classes     = [MultiPartParser, FormParser, JSONParser]
+    http_method_names  = ['get', 'post', 'delete', 'head', 'options']  # No PUT/PATCH
+
+    def get_queryset(self):
+        qs = CaseClosureDocument.objects.select_related(
+            'court_case', 'uploaded_by'
+        ).all()
+        court_case_id = self.request.query_params.get('court_case')
+        job_id = self.request.query_params.get('job_id')
+        
+        if job_id:
+            qs = qs.filter(notice__court_case__job_id=job_id)
+        if court_case_id:
+            qs = qs.filter(court_case_id=court_case_id)
+        return qs
+
+    def perform_create(self, serializer):
+        from rest_framework.exceptions import ValidationError, PermissionDenied
+
+        user = self.request.user
+        court_case_id = self.request.data.get('court_case')
+        doc_type = self.request.data.get('doc_type')
+
+        if not court_case_id or not doc_type:
+            raise ValidationError({'error': 'court_case and doc_type are required.'})
+
+        try:
+            court_case = CourtCase.objects.get(id=court_case_id)
+        except CourtCase.DoesNotExist:
+            raise ValidationError({'error': 'Court case not found.'})
+
+        # ✅ Only Maker (or admin) can upload
+        if not (is_case_maker(court_case, user) or is_admin_role(user)):
+            raise PermissionDenied('Only assigned Maker can upload closure documents.')
+
+        # ✅ Case must not be closed
+        if court_case.status == 'closed':
+            raise ValidationError({'error': 'Cannot upload — case is already closed.'})
+
+        # ✅ Bundle must not be pending/escalated review
+        if court_case.closure_review_status in ('pending', 'escalated'):
+            raise ValidationError({
+                'error': 'Cannot upload — closure bundle is currently under review.'
+            })
+
+        # ✅ If bundle was REJECTED, auto-clear ALL old rejected docs on first new upload
+        # This resets the whole cycle so Maker starts fresh
+        if court_case.closure_review_status == 'rejected':
+            for old_doc in court_case.closure_documents.all():
+                log_event(
+                    client_id=court_case.client_id,
+                    litigation_type=court_case.litigation_type,
+                    court_case=court_case,
+                    job_id=court_case.job_id,
+                    event_type='doc_delete',
+                    title=f'Old rejected closure doc auto-removed: {old_doc.file_name}',
+                    user=user,
+                    old_values={'file_name': old_doc.file_name, 'doc_type': old_doc.doc_type},
+                )
+                old_doc.delete()
+
+            # Reset bundle state
+            court_case.closure_review_status = 'not_started'
+            court_case.closure_review_note = None
+            court_case.closure_reviewed_by = None
+            court_case.closure_reviewed_at = None
+            court_case.closure_submitted_by = None
+            court_case.closure_submitted_at = None
+            court_case.save(update_fields=[
+                'closure_review_status', 'closure_review_note',
+                'closure_reviewed_by', 'closure_reviewed_at',
+                'closure_submitted_by', 'closure_submitted_at', 'updated_at',
+            ])
+
+        # ✅ Block if this doc_type already uploaded in current cycle
+        if court_case.closure_documents.filter(doc_type=doc_type).exists():
+            raise ValidationError({
+                'error': f'{doc_type.replace("_", " ").title()} already uploaded. Delete it first to re-upload.'
+            })
+
+        instance = serializer.save(uploaded_by=user)
+
+        # ✅ Move bundle to 'draft' state
+        if court_case.closure_review_status == 'not_started':
+            court_case.closure_review_status = 'draft'
+            court_case.save(update_fields=['closure_review_status', 'updated_at'])
+
+        # ✅ Log upload
+        doc_labels = {
+            'order': 'Order',
+            'demand_notice': 'Demand Notice',
+            'computation_sheet': 'Computation Sheet',
+        }
+        log_event(
+            client_id=court_case.client_id,
+            litigation_type=court_case.litigation_type,
+            court_case=court_case,
+            job_id=court_case.job_id,
+            event_type='doc_upload',
+            title=f'{doc_labels.get(doc_type, doc_type)} uploaded for case closure',
+            user=user,
+            new_values={'file_name': instance.file_name, 'doc_type': doc_type},
+        )
+
+    def perform_destroy(self, instance):
+        from rest_framework.exceptions import PermissionDenied
+        user = self.request.user
+        court_case = instance.court_case
+
+        # ✅ Maker can delete only during draft phase (before submitting)
+        # After approval: NEVER deletable (case is closed)
+        # After rejection: not deleted individually — auto-cleared on new upload
+        can_maker_delete = (
+            (is_case_maker(court_case, user) or is_admin_role(user))
+            and court_case.closure_review_status in ('draft', 'not_started')
+            and court_case.status != 'closed'
+        )
+
+        if not can_maker_delete and not is_founder(user):
+            raise PermissionDenied('Cannot delete this file.')
+
+        doc_labels = {
+            'order': 'Order',
+            'demand_notice': 'Demand Notice',
+            'computation_sheet': 'Computation Sheet',
+        }
+        log_event(
+            client_id=court_case.client_id,
+            litigation_type=court_case.litigation_type,
+            court_case=court_case,
+            job_id=court_case.job_id,
+            event_type='doc_delete',
+            title=f'{doc_labels.get(instance.doc_type, instance.doc_type)} deleted',
+            user=user,
+            old_values={'file_name': instance.file_name, 'doc_type': instance.doc_type},
+        )
+
+        instance.delete()
+
+        # ✅ If no docs remain, reset bundle to not_started
+        if not court_case.closure_documents.exists() and court_case.closure_review_status == 'draft':
+            court_case.closure_review_status = 'not_started'
+            court_case.save(update_fields=['closure_review_status', 'updated_at'])
+
+
+# ═══════════════════════════════════════════════════════════════════
+# CASE CLOSURE BUNDLE ACTIONS
+# Bundle-level operations: submit, approve, reject, escalate.
+# All 3 files must be uploaded before submission.
+# ═══════════════════════════════════════════════════════════════════
+class CaseClosureBundleView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def _get_case(self, pk):
+        try:
+            return CourtCase.objects.get(id=pk)
+        except CourtCase.DoesNotExist:
+            return None
+
+    def _has_all_3_docs(self, court_case):
+        uploaded_types = set(
+            court_case.closure_documents.values_list('doc_type', flat=True)
+        )
+        return uploaded_types == {'order', 'demand_notice', 'computation_sheet'}
+
+    def post(self, request, pk, action):
+        court_case = self._get_case(pk)
+        if not court_case:
+            return Response({'error': 'Case not found.'}, status=404)
+
+        user = request.user
+
+        # ── SUBMIT for review (Maker only) ──
+        if action == 'submit':
+            if not (is_case_maker(court_case, user) or is_admin_role(user)):
+                return Response({'error': 'Only Maker can submit for review.'}, status=403)
+
+            if court_case.status == 'closed':
+                return Response({'error': 'Case is already closed.'}, status=400)
+
+            if court_case.closure_review_status != 'draft':
+                return Response({
+                    'error': f'Cannot submit — current status: {court_case.closure_review_status}'
+                }, status=400)
+
+            if not self._has_all_3_docs(court_case):
+                return Response({
+                    'error': 'All 3 documents (Order, Demand Notice, Computation Sheet) must be uploaded before submitting.'
+                }, status=400)
+
+            court_case.closure_review_status = 'pending'
+            court_case.closure_submitted_by = user
+            court_case.closure_submitted_at = timezone.now()
+            court_case.closure_review_note = None
+            court_case.closure_reviewed_by = None
+            court_case.closure_reviewed_at = None
+            court_case.save(update_fields=[
+                'closure_review_status', 'closure_submitted_by', 'closure_submitted_at',
+                'closure_review_note', 'closure_reviewed_by', 'closure_reviewed_at',
+                'updated_at',
+            ])
+
+            log_event(
+                client_id=court_case.client_id,
+                litigation_type=court_case.litigation_type,
+                court_case=court_case,
+                job_id=court_case.job_id,
+                event_type='doc_upload',
+                title='Case closure bundle submitted for review (3 documents)',
+                user=user,
+            )
+            return Response(CourtCaseSerializer(court_case, context={'request': request}).data)
+
+        # ── APPROVE bundle → close case ──
+        if action == 'approve':
+            if not (is_case_checker(court_case, user) or is_high_admin(user)):
+                return Response({'error': 'Only Checker or Founder can approve.'}, status=403)
+
+            if court_case.closure_review_status not in ('pending', 'escalated'):
+                return Response({
+                    'error': f'Cannot approve — current status: {court_case.closure_review_status}'
+                }, status=400)
+
+            if court_case.closure_review_status == 'escalated' and not is_high_admin(user):
+                return Response({'error': 'Only Founder can approve escalated bundle.'}, status=403)
+
+            # ✅ Approve bundle + close case
+            court_case.closure_review_status = 'approved'
+            court_case.closure_reviewed_by = user
+            court_case.closure_reviewed_at = timezone.now()
+            court_case.closure_review_note = None
+            court_case.status = 'closed'
+            court_case.save(update_fields=[
+                'closure_review_status', 'closure_reviewed_by', 'closure_reviewed_at',
+                'closure_review_note', 'status', 'updated_at',
+            ])
+
+            # ✅ All notices → 'open'
+            court_case.notices.exclude(status='open').update(status='open')
+
+            # ✅ Case status log
+            CourtCaseStatusLog.objects.create(
+                case=court_case,
+                event_type='step',
+                old_status='wip',
+                new_status='closed',
+                note='Case closed — closure bundle approved',
+                changed_by=user,
+            )
+
+            log_event(
+                client_id=court_case.client_id,
+                litigation_type=court_case.litigation_type,
+                court_case=court_case,
+                job_id=court_case.job_id,
+                event_type='status_change',
+                title='Case closed — closure bundle approved',
+                user=user,
+                new_values={'status': 'closed'},
+            )
+            return Response(CourtCaseSerializer(court_case, context={'request': request}).data)
+
+        # ── REJECT bundle ──
+        if action == 'reject':
+            if not (is_case_checker(court_case, user) or is_high_admin(user)):
+                return Response({'error': 'Only Checker or Founder can reject.'}, status=403)
+
+            reason = (request.data.get('reason') or '').strip()
+            if not reason:
+                return Response({'error': 'Rejection reason is required.'}, status=400)
+
+            if court_case.closure_review_status not in ('pending', 'escalated'):
+                return Response({
+                    'error': f'Cannot reject — current status: {court_case.closure_review_status}'
+                }, status=400)
+
+            if court_case.closure_review_status == 'escalated' and not is_high_admin(user):
+                return Response({'error': 'Only Founder can reject escalated bundle.'}, status=403)
+
+            court_case.closure_review_status = 'rejected'
+            court_case.closure_review_note = reason
+            court_case.closure_reviewed_by = user
+            court_case.closure_reviewed_at = timezone.now()
+            court_case.save(update_fields=[
+                'closure_review_status', 'closure_review_note',
+                'closure_reviewed_by', 'closure_reviewed_at', 'updated_at',
+            ])
+
+            log_event(
+                client_id=court_case.client_id,
+                litigation_type=court_case.litigation_type,
+                court_case=court_case,
+                job_id=court_case.job_id,
+                event_type='doc_delete',
+                title='Case closure bundle rejected',
+                user=user,
+                new_values={'reason': reason},
+            )
+            return Response(CourtCaseSerializer(court_case, context={'request': request}).data)
+
+        # ── ESCALATE to CEO ──
+        if action == 'escalate':
+            if not is_case_checker(court_case, user):
+                return Response({'error': 'Only Checker can escalate.'}, status=403)
+
+            if court_case.closure_review_status != 'pending':
+                return Response({'error': 'Only pending bundles can be escalated.'}, status=400)
+
+            court_case.closure_review_status = 'escalated'
+            court_case.save(update_fields=['closure_review_status', 'updated_at'])
+
+            log_event(
+                client_id=court_case.client_id,
+                litigation_type=court_case.litigation_type,
+                court_case=court_case,
+                job_id=court_case.job_id,
+                event_type='notice_doc_escalated',
+                title='Case closure bundle escalated to CEO',
+                user=user,
+            )
+            return Response(CourtCaseSerializer(court_case, context={'request': request}).data)
+
+        return Response({'error': f'Unknown action: {action}'}, status=400)

@@ -434,6 +434,34 @@ class CourtCase(models.Model):
     checker_flag_note = models.TextField(blank=True, null=True)
     checker_approved_close = models.BooleanField(default=False)
 
+    # ═══ Case closure workflow (bundle-based review) ═══
+    CLOSURE_REVIEW_STATUS_CHOICES = [
+        ('not_started', 'Not Started'),      # No files uploaded yet
+        ('draft',       'Draft'),            # Files uploaded, awaiting Maker's Submit
+        ('pending',     'Pending Review'),   # Sent to Checker
+        ('approved',    'Approved'),         # All 3 approved → case closed
+        ('rejected',    'Rejected'),         # Bundle rejected, Maker re-uploads
+        ('escalated',   'Escalated to CEO'), # Sent to CEO
+    ]
+    closure_review_status = models.CharField(
+        max_length=20,
+        choices=CLOSURE_REVIEW_STATUS_CHOICES,
+        default='not_started',
+    )
+    closure_review_note   = models.TextField(blank=True, null=True)
+    closure_reviewed_by   = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='reviewed_closure_bundles',
+    )
+    closure_reviewed_at   = models.DateTimeField(null=True, blank=True)
+    closure_submitted_by  = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='submitted_closure_bundles',
+    )
+    closure_submitted_at  = models.DateTimeField(null=True, blank=True)
+
     notes = models.TextField(blank=True, null=True)
 
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_court_cases')
@@ -570,7 +598,6 @@ class CaseNotice(models.Model):
         ('wip',    'WIP'),
         ('under_review', 'Under Review'),
         ('open',   'Open'),
-        ('closed', 'Closed'),
     ]
 
     court_case        = models.ForeignKey('CourtCase', on_delete=models.CASCADE, related_name='notices')
@@ -619,10 +646,13 @@ class NoticeDocument(models.Model):
         ('pending',      'Pending Review'),
         ('reply',        'Approved Reply'),
         ('acknowledgment',  'Acknowledgment'),
+        ('supporting_doc', 'Supporting Document'),
+        ('pending_support', 'Pending Support Doc'),
     ]
 
     REVIEW_STATUS_CHOICES = [
         ('not_applicable', 'Not Applicable'),
+        ('draft',          'Draft'),
         ('pending',        'Pending Review'),
         ('approved',       'Approved'),
         ('rejected',       'Rejected'),
@@ -633,6 +663,9 @@ class NoticeDocument(models.Model):
     file          = models.FileField(upload_to='notice_documents/%Y/%m/')
     file_name     = models.CharField(max_length=255, blank=True)
     doc_type      = models.CharField(max_length=20, choices=DOC_TYPE_CHOICES, default='pending')
+    
+    reply_version = models.IntegerField(null=True, blank=True) 
+
     review_status = models.CharField(max_length=20, choices=REVIEW_STATUS_CHOICES, default='not_applicable')
     review_note   = models.TextField(blank=True, null=True)
     reviewed_by   = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='reviewed_notice_docs')
@@ -650,6 +683,8 @@ class NoticeDocument(models.Model):
 
     def __str__(self):
         return f"{self.file_name} ({self.doc_type})"
+
+
 
 
 class NoticeReply(models.Model):
@@ -694,3 +729,54 @@ class NoticeReply(models.Model):
 
     def __str__(self):
         return f"Reply for {self.notice.din_number}"
+
+
+
+
+
+
+
+# ═══════════════════════════════════════════════════════════════════
+# CASE CLOSURE DOCUMENTS
+# 3 mandatory files uploaded by Maker (Order, Demand Notice, Computation Sheet).
+# Bundle-based review: all 3 approved/rejected together at CourtCase level.
+# ═══════════════════════════════════════════════════════════════════
+class CaseClosureDocument(models.Model):
+    DOC_TYPE_CHOICES = [
+        ('order',             'Order'),
+        ('demand_notice',     'Demand Notice'),
+        ('computation_sheet', 'Computation Sheet'),
+    ]
+
+    court_case  = models.ForeignKey(
+        CourtCase,
+        on_delete=models.CASCADE,
+        related_name='closure_documents',
+    )
+    doc_type    = models.CharField(max_length=30, choices=DOC_TYPE_CHOICES)
+    file        = models.FileField(upload_to='case_closure/%Y/%m/')
+    file_name   = models.CharField(max_length=255, blank=True)
+
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='uploaded_closure_docs',
+    )
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['doc_type', '-uploaded_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['court_case', 'doc_type'],
+                name='unique_closure_doc_per_type',
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self.file_name and self.file:
+            self.file_name = self.file.name.split('/')[-1]
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.court_case_id} — {self.doc_type}"

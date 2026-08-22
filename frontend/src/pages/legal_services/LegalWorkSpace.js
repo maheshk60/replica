@@ -6,7 +6,6 @@ import { MCModal } from './MCModal';
 import { useAuth } from '../../contexts/AuthContext';
 import LegalAuditTrailTab from './LegalAuditTrailTab';
 import ActivityTimelineV2 from './ActivityTimelineV2';
-import ReviewTab from './ReviewTab';
 import ReviewTabV2 from './ReviewTabV2';
 
 // ══════════════════════════════════════════════════════════════════════
@@ -159,7 +158,7 @@ const STATUS_META = {
   wip: { label: 'WIP', color: '#f59e0b', bg: '#FEF3C7' },
   open: { label: 'Open', color: '#0ea5e9', bg: '#E0F2FE' },
   closed: { label: 'Closed', color: '#10b981', bg: '#D1FAE5' },
-  //attention_required: { label: 'Attention Required', color: '#dc2626', bg: '#FEE2E2' },
+  attention_required: { label: 'Attention Required', color: '#dc2626', bg: '#FEE2E2' },
 };
 
 function fmtDate(d) {
@@ -1073,22 +1072,6 @@ export default function LegalWorkSpace() {
   const activityStatus = activityCase?.computed_status || activityCase?.status || 'wip';
   const statusMeta = STATUS_META[activityStatus] || STATUS_META.wip;
 
-  const getActionOwnerName = () => {
-    const status = activityCase?.computed_status || activityCase?.status;
-    if (!activityCase || (status !== 'wip' && status !== 'attention_required')) return null;
-
-    if (pendingReview) {
-      if (pendingReview.status === 'escalated') return 'CEO';
-      if (pendingReview.status === 'pending') {
-        const checkers = caseData?.checkers || [];
-        return checkers.map((c) => c.name).join(', ') || 'Checker';
-      }
-    }
-    const makers = caseData?.makers || [];
-    return makers.map((m) => m.name).join(', ') || 'Maker';
-  };
-
-
   const constitutionDisplay = (() => {
     if (client.constitution_name) return client.constitution_name;
     if (client.constitution) {
@@ -1101,14 +1084,6 @@ export default function LegalWorkSpace() {
   })();
 
   const clientDisplay = { ...client, constitution_display: constitutionDisplay };
-
-  console.log('=== ACTION CHIP DEBUG ===');
-  console.log('activityCase:', activityCase);
-  console.log('pendingReview:', pendingReview);
-  console.log('caseData?.makers:', caseData?.makers);
-  console.log('caseData?.checkers:', caseData?.checkers);
-  console.log('getActionOwnerName() result:', getActionOwnerName());
-
 
   const linkedTask = caseData?.linked_task || null;
 
@@ -1206,19 +1181,6 @@ export default function LegalWorkSpace() {
                 {statusMeta.label}
               </span>
 
-              {(() => {
-                const actionOwner = getActionOwnerName();
-                return actionOwner ? (
-                  <span style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 5,
-                    fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 99,
-                    background: '#EEF3FC', color: '#214274',
-                    border: '1px solid #C5D5EF',
-                  }} title="Who needs to act next">
-                    👤 {actionOwner}
-                  </span>
-                ) : null;
-              })()}
 
               {caseData?.sub_service_name && (
                 <span style={{

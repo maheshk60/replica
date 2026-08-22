@@ -7,7 +7,8 @@ from .views import (
     MCACaseViewSet, FEMACaseViewSet, PartnershipCaseViewSet, LegalAuditTrailView,
     DocumentCategoryViewSet, ClientCustomDocumentViewSet,NoticeReplyViewSet,        # ✅ ADD
     ReplyImageUploadView,
-    CourtCaseViewSet, ReviewRequestViewSet,LegalClientDetailView,CaseNoticeViewSet,NoticeDocumentViewSet,   
+    CourtCaseViewSet, ReviewRequestViewSet,LegalClientDetailView,CaseNoticeViewSet,NoticeDocumentViewSet, 
+    CaseClosureDocumentViewSet, CaseClosureBundleView,  
 )
 
 router = DefaultRouter()
@@ -23,9 +24,11 @@ router.register(r'reviews', ReviewRequestViewSet, basename='review-request')
 router.register(r'notices',          CaseNoticeViewSet,       basename='case-notice')
 router.register(r'notice-documents', NoticeDocumentViewSet,   basename='notice-document')
 router.register(r'notice-replies',   NoticeReplyViewSet,      basename='notice-reply') 
+router.register(r'closure-documents', CaseClosureDocumentViewSet, basename='closure-document')
 
 urlpatterns = [
     path('audit-trail/', LegalAuditTrailView.as_view(), name='legal-audit-trail'),
     path('client/<int:client_id>/', LegalClientDetailView.as_view(), name='legal-client-detail'),
     path('reply-image-upload/',     ReplyImageUploadView.as_view(),  name='reply-image-upload'),
+    path('court-cases/<int:pk>/closure-<str:action>/', CaseClosureBundleView.as_view(), name='court-case-closure-action'),
 ] + router.urls

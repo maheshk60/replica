@@ -4,7 +4,49 @@ from rest_framework import serializers
 from .models import (
     TDSLitigation, IncomeTaxLitigation, MCACase, FEMACase,
     PartnershipCase, LegalCaseAuditLog, ReviewRequest,CaseNotice, NoticeDocument, NoticeReply,
+    CaseClosureDocument,
 )
+
+
+from datetime import date, datetime, timedelta
+
+def _case_has_attention_required(case_or_notices):
+    """
+    Returns True if ANY notice is wip/under_review AND its effective due date
+    is within 5 days OR already overdue.
+    Effective due date = extended_due_date if set, else due_date.
+    """
+    if hasattr(case_or_notices, 'all'):
+        notices = case_or_notices.all()
+    else:
+        notices = case_or_notices
+
+    today = date.today()
+    threshold = today + timedelta(days=5)
+
+    for n in notices:
+        # Only wip / under_review notices count for attention
+        if n.status not in ('wip', 'under_review'):
+            continue
+
+        # Effective due date
+        due = n.extended_due_date or n.due_date
+        if not due:
+            continue
+
+        # Convert string to date if needed
+        if isinstance(due, str):
+            try:
+                due = datetime.strptime(due, '%Y-%m-%d').date()
+            except (ValueError, TypeError):
+                continue
+
+        # Overdue OR within 5 days → attention required
+        if due <= threshold:
+            return True
+
+    return False
+
 
 
 class BaseLegalCaseSerializer(serializers.ModelSerializer):
@@ -90,16 +132,55 @@ class TDSLitigationSerializer(BaseLegalCaseSerializer):
         read_only_fields = ['reference_no', 'created_by']
 
     # ── Methods ────────────────────────────────────────────────
+    # def get_linked_task(self, obj):
+    #     task = getattr(obj, 'task', None)
+    #     if not task:
+    #         from clients.models import Task
+    #         task = Task.objects.select_related(
+    #             'client', 'sub_service', 'spoc', 'team', 'created_by'
+    #         ).filter(
+    #             client=obj.client,
+    #             sub_service=obj.sub_service
+    #         ).order_by('-created_at').first()
+    #     if not task:
+    #         return None
+    #     return {
+    #         'id':               task.id,
+    #         'task_id':          task.task_id,
+    #         'client_name':      getattr(task.client, 'name', None),
+    #         'sub_service_name': getattr(task.sub_service, 'name', None),
+    #         'spoc_name':        getattr(task.spoc, 'name', None),
+    #         'team_name':        getattr(task.team, 'name', None),
+    #         'status':           task.status,
+    #         'period':           task.period,
+    #         'due_date':         str(task.due_date) if task.due_date else None,
+    #         'created_by_name':  (
+    #             task.created_by.get_full_name() or task.created_by.email
+    #         ) if task.created_by else None,
+    #         'created_at':       task.created_at.isoformat() if task.created_at else None,
+    #     }
+
+    # def get_task_id(self, obj):
+    #     if getattr(obj, 'task', None):
+    #         return obj.task.task_id
+    #     from clients.models import Task
+    #     task = Task.objects.filter(
+    #         client=obj.client, sub_service=obj.sub_service
+    #     ).order_by('-created_at').first()
+    #     return task.task_id if task else None
+
+    # def get_task_period(self, obj):
+    #     if getattr(obj, 'task', None):
+    #         return obj.task.period
+    #     from clients.models import Task
+    #     task = Task.objects.filter(
+    #         client=obj.client, sub_service=obj.sub_service
+    #     ).order_by('-created_at').first()
+    #     return task.period if task else None
+
+    # ── Methods ────────────────────────────────────────────────
     def get_linked_task(self, obj):
         task = getattr(obj, 'task', None)
-        if not task:
-            from clients.models import Task
-            task = Task.objects.select_related(
-                'client', 'sub_service', 'spoc', 'team', 'created_by'
-            ).filter(
-                client=obj.client,
-                sub_service=obj.sub_service
-            ).order_by('-created_at').first()
         if not task:
             return None
         return {
@@ -121,20 +202,12 @@ class TDSLitigationSerializer(BaseLegalCaseSerializer):
     def get_task_id(self, obj):
         if getattr(obj, 'task', None):
             return obj.task.task_id
-        from clients.models import Task
-        task = Task.objects.filter(
-            client=obj.client, sub_service=obj.sub_service
-        ).order_by('-created_at').first()
-        return task.task_id if task else None
+        return None
 
     def get_task_period(self, obj):
         if getattr(obj, 'task', None):
             return obj.task.period
-        from clients.models import Task
-        task = Task.objects.filter(
-            client=obj.client, sub_service=obj.sub_service
-        ).order_by('-created_at').first()
-        return task.period if task else None
+        return None
 
     def get_activity_status(self, obj):
         from .models import CourtCase
@@ -143,8 +216,8 @@ class TDSLitigationSerializer(BaseLegalCaseSerializer):
         ).order_by('-created_at').first()
         return case.status if case else 'wip'
 
+    
     # def get_computed_status(self, obj):
-    #     from datetime import date, datetime
     #     from .models import CourtCase
     #     case = CourtCase.objects.filter(
     #         client=obj.client, litigation_type='tds', job_id=obj.id
@@ -153,23 +226,25 @@ class TDSLitigationSerializer(BaseLegalCaseSerializer):
     #         return 'wip'
     #     if case.status == 'closed':
     #         return 'closed'
-    #     hearing = case.next_hearing_date
-    #     if isinstance(hearing, str):
-    #         try:
-    #             hearing = datetime.strptime(hearing, '%Y-%m-%d').date()
-    #         except (ValueError, TypeError):
-    #             hearing = None
-    #     today = date.today()
-    #     if not hearing or today <= hearing:
-    #         return case.status
-    #     logs_after = case.status_logs.filter(created_at__date__gt=hearing)
-    #     if logs_after.filter(
-    #         event_type__in=['appeal', 'adjournment', 'outcome_won', 'outcome_lost']
-    #     ).exists():
-    #         return case.status
-    #     if logs_after.filter(event_type='step').exists():
+
+    #     # ✅ Notice-driven status (same logic as CourtCaseSerializer)
+    #     notices = case.notices.all()
+    #     if not notices.exists():
     #         return 'wip'
-    #     return 'attention_required'
+
+    #     statuses = set(n.status for n in notices)
+
+    #     # under_review at notice level → WIP at job level
+    #     if 'under_review' in statuses or 'wip' in statuses:
+    #         return 'wip'
+
+    #     if statuses == {'closed'}:
+    #         return 'closed'
+
+    #     if statuses <= {'open', 'closed'}:
+    #         return 'open'
+
+    #     return 'wip'
 
 
     def get_computed_status(self, obj):
@@ -182,21 +257,20 @@ class TDSLitigationSerializer(BaseLegalCaseSerializer):
         if case.status == 'closed':
             return 'closed'
 
-        # ✅ Notice-driven status (same logic as CourtCaseSerializer)
         notices = case.notices.all()
         if not notices.exists():
             return 'wip'
 
+        # ✅ Attention required check
+        if _case_has_attention_required(notices):
+            return 'attention_required'
+
         statuses = set(n.status for n in notices)
 
-        # under_review at notice level → WIP at job level
-        if 'under_review' in statuses or 'wip' in statuses:
+        if 'wip' in statuses or 'under_review' in statuses:
             return 'wip'
 
-        if statuses == {'closed'}:
-            return 'closed'
-
-        if statuses <= {'open', 'closed'}:
+        if statuses == {'open'}:
             return 'open'
 
         return 'wip'
@@ -220,16 +294,55 @@ class IncomeTaxLitigationSerializer(BaseLegalCaseSerializer):
         read_only_fields = ['reference_no', 'created_by']
 
     # ── Methods ────────────────────────────────────────────────
+    # def get_linked_task(self, obj):
+    #     task = getattr(obj, 'task', None)
+    #     if not task:
+    #         from clients.models import Task
+    #         task = Task.objects.select_related(
+    #             'client', 'sub_service', 'spoc', 'team', 'created_by'
+    #         ).filter(
+    #             client=obj.client,
+    #             sub_service=obj.sub_service
+    #         ).order_by('-created_at').first()
+    #     if not task:
+    #         return None
+    #     return {
+    #         'id':               task.id,
+    #         'task_id':          task.task_id,
+    #         'client_name':      getattr(task.client, 'name', None),
+    #         'sub_service_name': getattr(task.sub_service, 'name', None),
+    #         'spoc_name':        getattr(task.spoc, 'name', None),
+    #         'team_name':        getattr(task.team, 'name', None),
+    #         'status':           task.status,
+    #         'period':           task.period,
+    #         'due_date':         str(task.due_date) if task.due_date else None,
+    #         'created_by_name':  (
+    #             task.created_by.get_full_name() or task.created_by.email
+    #         ) if task.created_by else None,
+    #         'created_at':       task.created_at.isoformat() if task.created_at else None,
+    #     }
+
+    # def get_task_id(self, obj):
+    #     if getattr(obj, 'task', None):
+    #         return obj.task.task_id
+    #     from clients.models import Task
+    #     task = Task.objects.filter(
+    #         client=obj.client, sub_service=obj.sub_service
+    #     ).order_by('-created_at').first()
+    #     return task.task_id if task else None
+
+    # def get_task_period(self, obj):
+    #     if getattr(obj, 'task', None):
+    #         return obj.task.period
+    #     from clients.models import Task
+    #     task = Task.objects.filter(
+    #         client=obj.client, sub_service=obj.sub_service
+    #     ).order_by('-created_at').first()
+    #     return task.period if task else None
+
+        # ── Methods ────────────────────────────────────────────────
     def get_linked_task(self, obj):
         task = getattr(obj, 'task', None)
-        if not task:
-            from clients.models import Task
-            task = Task.objects.select_related(
-                'client', 'sub_service', 'spoc', 'team', 'created_by'
-            ).filter(
-                client=obj.client,
-                sub_service=obj.sub_service
-            ).order_by('-created_at').first()
         if not task:
             return None
         return {
@@ -251,20 +364,13 @@ class IncomeTaxLitigationSerializer(BaseLegalCaseSerializer):
     def get_task_id(self, obj):
         if getattr(obj, 'task', None):
             return obj.task.task_id
-        from clients.models import Task
-        task = Task.objects.filter(
-            client=obj.client, sub_service=obj.sub_service
-        ).order_by('-created_at').first()
-        return task.task_id if task else None
+        return None
 
     def get_task_period(self, obj):
         if getattr(obj, 'task', None):
             return obj.task.period
-        from clients.models import Task
-        task = Task.objects.filter(
-            client=obj.client, sub_service=obj.sub_service
-        ).order_by('-created_at').first()
-        return task.period if task else None
+        return None
+
 
     def get_activity_status(self, obj):
         from .models import CourtCase
@@ -273,8 +379,9 @@ class IncomeTaxLitigationSerializer(BaseLegalCaseSerializer):
         ).order_by('-created_at').first()
         return case.status if case else 'wip'
 
+    
+
     # def get_computed_status(self, obj):
-    #     from datetime import date, datetime
     #     from .models import CourtCase
     #     case = CourtCase.objects.filter(
     #         client=obj.client, litigation_type='income-tax', job_id=obj.id
@@ -283,23 +390,24 @@ class IncomeTaxLitigationSerializer(BaseLegalCaseSerializer):
     #         return 'wip'
     #     if case.status == 'closed':
     #         return 'closed'
-    #     hearing = case.next_hearing_date
-    #     if isinstance(hearing, str):
-    #         try:
-    #             hearing = datetime.strptime(hearing, '%Y-%m-%d').date()
-    #         except (ValueError, TypeError):
-    #             hearing = None
-    #     today = date.today()
-    #     if not hearing or today <= hearing:
-    #         return case.status
-    #     logs_after = case.status_logs.filter(created_at__date__gt=hearing)
-    #     if logs_after.filter(
-    #         event_type__in=['appeal', 'adjournment', 'outcome_won', 'outcome_lost']
-    #     ).exists():
-    #         return case.status
-    #     if logs_after.filter(event_type='step').exists():
+
+    #     # ✅ Notice-driven status (same logic as CourtCaseSerializer)
+    #     notices = case.notices.all()
+    #     if not notices.exists():
     #         return 'wip'
-    #     return 'attention_required'
+
+    #     statuses = set(n.status for n in notices)
+
+    #     if 'under_review' in statuses or 'wip' in statuses:
+    #         return 'wip'
+
+    #     if statuses == {'closed'}:
+    #         return 'closed'
+
+    #     if statuses <= {'open', 'closed'}:
+    #         return 'open'
+
+    #     return 'wip'
 
 
     def get_computed_status(self, obj):
@@ -312,20 +420,19 @@ class IncomeTaxLitigationSerializer(BaseLegalCaseSerializer):
         if case.status == 'closed':
             return 'closed'
 
-        # ✅ Notice-driven status (same logic as CourtCaseSerializer)
         notices = case.notices.all()
         if not notices.exists():
             return 'wip'
 
+        if _case_has_attention_required(notices):
+            return 'attention_required'
+
         statuses = set(n.status for n in notices)
 
-        if 'under_review' in statuses or 'wip' in statuses:
+        if 'wip' in statuses or 'under_review' in statuses:
             return 'wip'
 
-        if statuses == {'closed'}:
-            return 'closed'
-
-        if statuses <= {'open', 'closed'}:
+        if statuses == {'open'}:
             return 'open'
 
         return 'wip'
@@ -394,7 +501,7 @@ class NoticeDocumentSerializer(serializers.ModelSerializer):
         model  = NoticeDocument
         fields = [
             'id', 'notice', 'file', 'file_url', 'file_name',
-            'doc_type', 'review_status', 'review_note',
+            'doc_type', 'reply_version', 'review_status', 'review_note',
             'reviewed_by', 'reviewed_by_name', 'reviewed_at',
             'uploaded_by', 'uploaded_by_name', 'uploaded_at',
         ]
@@ -421,15 +528,25 @@ class NoticeDocumentSerializer(serializers.ModelSerializer):
             return obj.reviewed_by.get_full_name() or obj.reviewed_by.email
         return None
 
-
 class CaseNoticeSerializer(serializers.ModelSerializer):
     created_by_name   = serializers.SerializerMethodField()
     reviewed_by_name  = serializers.SerializerMethodField()
     court_notice_docs = serializers.SerializerMethodField()
     pending_docs      = serializers.SerializerMethodField()
     reply_docs        = serializers.SerializerMethodField()
-    replies_count = serializers.SerializerMethodField()
+    supporting_docs   = serializers.SerializerMethodField() 
+    replies_count     = serializers.SerializerMethodField()
     documents         = serializers.SerializerMethodField()
+
+    # ✅ NEW: Context fields for cross-case notice listing
+    client_id         = serializers.IntegerField(source='court_case.client_id', read_only=True)
+    client_name       = serializers.CharField(source='court_case.client.name', read_only=True)
+    litigation_type   = serializers.CharField(source='court_case.litigation_type', read_only=True)
+    job_id            = serializers.IntegerField(source='court_case.job_id', read_only=True)
+    case_status       = serializers.CharField(source='court_case.status', read_only=True)
+    sub_service_name  = serializers.SerializerMethodField()
+    task_id           = serializers.SerializerMethodField()
+    task_period       = serializers.SerializerMethodField()
 
     class Meta:
         model  = CaseNotice
@@ -438,16 +555,26 @@ class CaseNoticeSerializer(serializers.ModelSerializer):
             'din_number', 'officer', 'section',
             'notice_date', 'due_date', 'extended_due_date', 'ph_date',
             'status', 'notes',
-            'review_status', 'review_note',  'replies_count', # ✅ NEW
+            'review_status', 'review_note', 'replies_count',
             'reviewed_by', 'reviewed_by_name', 'reviewed_at',
             'created_by', 'created_by_name',
             'created_at', 'updated_at',
-            'court_notice_docs', 'pending_docs', 'reply_docs', 'documents',
+            'court_notice_docs', 'pending_docs', 'reply_docs', 'supporting_docs','documents',
+            # ✅ NEW: Context fields
+            'client_id', 'client_name', 'litigation_type', 'job_id', 'case_status',
+            'sub_service_name', 'task_id', 'task_period',
         ]
         read_only_fields = [
             'created_by', 'created_at', 'updated_at',
             'court_notice_docs', 'pending_docs', 'reply_docs',
         ]
+
+    def get_supporting_docs(self, obj):
+        return NoticeDocumentSerializer(
+            # ✅ Fetch both approved and pending support docs so they appear in the UI
+            obj.documents.filter(doc_type__in=['supporting_doc', 'pending_support']),
+            many=True, context=self.context
+        ).data
 
     def get_replies_count(self, obj):
         return obj.replies.count()
@@ -461,7 +588,6 @@ class CaseNoticeSerializer(serializers.ModelSerializer):
         if obj.reviewed_by:
             return obj.reviewed_by.get_full_name() or obj.reviewed_by.email
         return None
-
 
     def get_court_notice_docs(self, obj):
         return NoticeDocumentSerializer(
@@ -482,13 +608,73 @@ class CaseNoticeSerializer(serializers.ModelSerializer):
         ).data
 
     def get_documents(self, obj):
-        """Returns ALL documents (court_notice, pending, reply, acknowledgment)"""
         return NoticeDocumentSerializer(
             obj.documents.all(),
             many=True, context=self.context
         ).data
 
+    # ✅ NEW helper methods
+    def get_sub_service_name(self, obj):
+        """Fetch sub_service name from linked TDSLitigation or IncomeTaxLitigation."""
+        from .models import TDSLitigation, IncomeTaxLitigation
+        job_id = obj.court_case.job_id
+        if not job_id:
+            return None
+        Model = TDSLitigation if obj.court_case.litigation_type == 'tds' else IncomeTaxLitigation
+        job = Model.objects.filter(id=job_id).select_related('sub_service').first()
+        return job.sub_service.name if job and job.sub_service else None
 
+    def get_task_id(self, obj):
+        """Fetch task_id from linked Task via TDS/IT litigation."""
+        from .models import TDSLitigation, IncomeTaxLitigation
+        job_id = obj.court_case.job_id
+        if not job_id:
+            return None
+        Model = TDSLitigation if obj.court_case.litigation_type == 'tds' else IncomeTaxLitigation
+        job = Model.objects.filter(id=job_id).select_related('task').first()
+        if job and job.task:
+            return job.task.task_id
+        return None
+
+    def get_task_period(self, obj):
+        """Fetch task period from linked Task."""
+        from .models import TDSLitigation, IncomeTaxLitigation
+        job_id = obj.court_case.job_id
+        if not job_id:
+            return None
+        Model = TDSLitigation if obj.court_case.litigation_type == 'tds' else IncomeTaxLitigation
+        job = Model.objects.filter(id=job_id).select_related('task').first()
+        if job and job.task:
+            return job.task.period
+        return None
+
+class CaseClosureDocumentSerializer(serializers.ModelSerializer):
+    file_url          = serializers.SerializerMethodField()
+    uploaded_by_name  = serializers.SerializerMethodField()
+    doc_type_display  = serializers.CharField(source='get_doc_type_display', read_only=True)
+
+    class Meta:
+        model  = CaseClosureDocument
+        fields = [
+            'id', 'court_case', 'doc_type', 'doc_type_display',
+            'file', 'file_url', 'file_name',
+            'uploaded_by', 'uploaded_by_name', 'uploaded_at',
+        ]
+        read_only_fields = [
+            'file_name', 'uploaded_by', 'uploaded_at',
+            'file_url', 'uploaded_by_name', 'doc_type_display',
+        ]
+
+    def get_file_url(self, obj):
+        request = self.context.get('request')
+        if request and obj.file:
+            return request.build_absolute_uri(obj.file.url)
+        return None
+
+    def get_uploaded_by_name(self, obj):
+        if obj.uploaded_by:
+            return obj.uploaded_by.get_full_name() or obj.uploaded_by.email
+        return None
 
 
 
@@ -533,6 +719,12 @@ class CourtCaseSerializer(serializers.ModelSerializer):
     computed_status = serializers.SerializerMethodField()  # ← NEW
     notices = CaseNoticeSerializer(many=True, read_only=True)
 
+    closure_documents          = serializers.SerializerMethodField()
+    closure_ready_to_submit    = serializers.SerializerMethodField()
+    closure_reviewed_by_name   = serializers.SerializerMethodField()
+    closure_submitted_by_name  = serializers.SerializerMethodField()
+
+
     class Meta:
         model = CourtCase
         fields = [
@@ -543,7 +735,10 @@ class CourtCaseSerializer(serializers.ModelSerializer):
             'created_by', 'created_by_name', 'created_at', 'updated_at', 'adjourned_date', 'adjournment_reason',
             'job_description', 'submitted_to_court', 'court_response',
             'officer', 'din_number', 'notice_date', 'ph_date','notices',
-
+            'closure_review_status', 'closure_review_note',
+            'closure_reviewed_by', 'closure_reviewed_by_name', 'closure_reviewed_at',
+            'closure_submitted_by', 'closure_submitted_by_name', 'closure_submitted_at',
+            'closure_documents', 'closure_ready_to_submit',
         ]
         read_only_fields = ['created_by', 'created_at', 'updated_at', 'created_by_name', 'status_logs', 'status', 'computed_status','job_id']
         extra_kwargs = {
@@ -555,75 +750,70 @@ class CourtCaseSerializer(serializers.ModelSerializer):
         }
 
 
-    # def get_computed_status(self, obj):
-    #     from datetime import date, datetime
-
-    #     if obj.status == 'closed':
-    #         return 'closed'
-
-    #     # ── Check notices first ──
-    #     notices = obj.notices.all()
-    #     if notices.exists():
-    #         statuses = set(n.status for n in notices)
-    #         if 'wip' in statuses:
-    #             return 'wip'
-    #         elif statuses <= {'open', 'closed'}:
-    #             return 'open'
-    #         elif statuses == {'closed'}:
-    #             return 'closed'
-
-    #     # ── Fallback to existing hearing date logic ──
-    #     hearing = obj.next_hearing_date
-    #     if isinstance(hearing, str):
-    #         try:
-    #             hearing = datetime.strptime(hearing, '%Y-%m-%d').date()
-    #         except (ValueError, TypeError):
-    #             hearing = None
-
-    #     today = date.today()
-    #     if not hearing or today <= hearing:
-    #         return obj.status
-
-    #     logs_after = obj.status_logs.filter(created_at__date__gt=hearing)
-    #     if logs_after.filter(
-    #         event_type__in=['appeal', 'adjournment', 'outcome_won', 'outcome_lost']
-    #     ).exists():
-    #         return obj.status
-    #     if logs_after.filter(event_type='step').exists():
-    #         return 'wip'
-    #     return 'attention_required'
-
 
     def get_computed_status(self, obj):
-        # ✅ If case is manually closed, always return closed
+        # ✅ Priority 1: Case closed via bundle workflow
         if obj.status == 'closed':
             return 'closed'
 
-        # ✅ Notice-driven status
         notices = obj.notices.all()
-
-        # No notices yet → WIP
         if not notices.exists():
             return 'wip'
 
+        # ✅ Priority 2: Attention required — any wip/under_review notice with due ≤5d or overdue
+        if _case_has_attention_required(notices):
+            return 'attention_required'
+
         statuses = set(n.status for n in notices)
 
-        # ✅ "under_review" at notice level → treat as WIP at case level
-        # (viewers see WIP in header, then go inside to see which notice is under review)
-        if 'under_review' in statuses or 'wip' in statuses:
+        # ✅ Priority 3: Any wip or under_review → wip
+        if 'wip' in statuses or 'under_review' in statuses:
             return 'wip'
 
-        # All notices closed → case closed
-        if statuses == {'closed'}:
-            return 'closed'
-
-        # All notices open or mix of open+closed → case open
-        if statuses <= {'open', 'closed'}:
+        # ✅ Priority 4: All open → open
+        if statuses == {'open'}:
             return 'open'
 
-        # Fallback
-        return obj.status
+        return 'wip'
 
+
+    def get_closure_documents(self, obj):
+        """
+        Returns closure documents ONLY when appropriate:
+        - draft/pending/escalated/approved → return docs
+        - rejected → return EMPTY (Maker re-uploads; sees rejection details separately)
+        - not_started → return empty (nothing uploaded)
+        """
+        if obj.closure_review_status == 'rejected':
+            return []  # ✅ Hide rejected docs — Maker starts fresh
+
+        return CaseClosureDocumentSerializer(
+            obj.closure_documents.all(),
+            many=True, context=self.context
+        ).data
+
+    def get_closure_ready_to_submit(self, obj):
+        """
+        True when all 3 required doc types are uploaded AND bundle is in draft state.
+        """
+        if obj.closure_review_status != 'draft':
+            return False
+        if obj.status == 'closed':
+            return False
+        uploaded_types = set(
+            obj.closure_documents.values_list('doc_type', flat=True)
+        )
+        return uploaded_types == {'order', 'demand_notice', 'computation_sheet'}
+
+    def get_closure_reviewed_by_name(self, obj):
+        if obj.closure_reviewed_by:
+            return obj.closure_reviewed_by.get_full_name() or obj.closure_reviewed_by.email
+        return None
+
+    def get_closure_submitted_by_name(self, obj):
+        if obj.closure_submitted_by:
+            return obj.closure_submitted_by.get_full_name() or obj.closure_submitted_by.email
+        return None
 
     def get_created_by_name(self, obj):
         if obj.created_by:

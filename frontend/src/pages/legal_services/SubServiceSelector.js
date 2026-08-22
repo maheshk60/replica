@@ -188,7 +188,7 @@ export default function SubServiceSelector({
               {hasStats && (
                 <div style={{
                   display: 'flex',
-                  gap: 12,
+                  gap: 8,
                   paddingTop: 16,
                   borderTop: `1px solid ${BRD}`,
                   flexWrap: 'wrap',
@@ -198,10 +198,10 @@ export default function SubServiceSelector({
                     <div key={s.label} style={{
                       textAlign: 'center',
                       flex: 1,
-                      minWidth: 60,
+                      minWidth: 48 ,
                     }}>
                       <div style={{
-                        fontSize: 22,
+                        fontSize: 20,
                         fontWeight: 900,
                         color: s.color || P,
                         lineHeight: 1,
@@ -209,7 +209,7 @@ export default function SubServiceSelector({
                         {s.value}
                       </div>
                       <div style={{
-                        fontSize: 10,
+                        fontSize: 9.5,
                         color: MUT,
                         marginTop: 3,
                         fontWeight: 500,
