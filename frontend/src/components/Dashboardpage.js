@@ -779,6 +779,11 @@ export default function DashboardPage() {
   const [serviceRequestsPending,  setServiceRequestsPending]  = useState(0);
   const [wfhRequestsPending,      setWfhRequestsPending]      = useState(0);
   
+    // ── Legal Services Action States ──
+  const [legalAttention, setLegalAttention] = useState({ count: 0, url: '' });
+  const [legalReview, setLegalReview] = useState({ count: 0, url: '' });
+  const [legalEscalated, setLegalEscalated] = useState({ count: 0, url: '' });
+
 
   const [checkingIO,              setCheckingIO]              = useState(false);
   const [checkOutVisible,         setCheckOutVisible]         = useState(false);
@@ -1053,6 +1058,71 @@ export default function DashboardPage() {
     // aiMotivations will use defaults from buildTickerPool
     }, []);
 
+
+      /* ── FETCH 5: Legal Services Actions ── */
+    useEffect(() => {
+      if (!user) return;
+      let cancelled = false;
+
+      const fetchLegalActions = async () => {
+        try {
+          // 1. Maker Attention (Notices without Ack, Due <= 5 days or Overdue)
+          const noticesRes = await api.get('/legal-services/notices/');
+          if (!cancelled && noticesRes.data) {
+            const notices = Array.isArray(noticesRes.data) ? noticesRes.data : (noticesRes.data.results || []);
+            const threshold = dayjs().startOf('day').add(5, 'day');
+
+            const urgent = notices.filter(n => {
+              if (n.status !== 'wip' && n.status !== 'under_review') return false;
+              
+              const dueDate = n.extended_due_date || n.due_date;
+              if (!dueDate) return false;
+              if (dayjs(dueDate).startOf('day').isAfter(threshold)) return false; 
+
+              // Attention is required if Acknowledgment is NOT approved
+              const hasAck = (n.documents || []).some(d => d.doc_type === 'acknowledgment' && d.review_status === 'approved');
+              return !hasAck;
+            });
+
+            if (urgent.length > 0) {
+              setLegalAttention({
+                count: urgent.length,
+                url: `/legal-services/clients/${urgent[0].client_id}?type=${urgent[0].litigation_type}&caseId=${urgent[0].court_case}&tab=activity&notice=${urgent[0].id}`
+              });
+            }
+          }
+
+          // 2. Checker / CEO Reviews
+          const reviewsRes = await api.get('/legal-services/reviews/pending-for-me/');
+          if (!cancelled && reviewsRes.data) {
+            const reviews = Array.isArray(reviewsRes.data) ? reviewsRes.data : (reviewsRes.data.results || []);
+            
+            const pending = reviews.filter(r => r.status === 'pending');
+            if (pending.length > 0) {
+              setLegalReview({
+                count: pending.length,
+                url: `/legal-services/clients/${pending[0].client_id}?type=${pending[0].litigation_type}&caseId=${pending[0].court_case}&tab=review`
+              });
+            }
+
+            const escalated = reviews.filter(r => r.status === 'escalated');
+            if (escalated.length > 0) {
+              setLegalEscalated({
+                count: escalated.length,
+                url: `/legal-services/clients/${escalated[0].client_id}?type=${escalated[0].litigation_type}&caseId=${escalated[0].court_case}&tab=review`
+              });
+            }
+          }
+        } catch (err) {
+          console.error("Failed to fetch legal actions", err);
+        }
+      };
+
+      fetchLegalActions();
+      return () => { cancelled = true; };
+    }, [user]);
+
+
   /* ── check-in / check-out ── */
   const handleCheckInOut = useCallback(() => {
     if (checkingIO || attLoading) return;
@@ -1159,6 +1229,34 @@ export default function DashboardPage() {
         count:wfhRequestsPending, accent:C.green,
         onClick:()=>navigate(`${REQUESTS_ROUTE}?tab=review`, { replace: true }), show:isManager||isFounder,
     },
+
+    {
+        key: 'legal-attention',
+        icon: <ExclamationCircleOutlined />, label: 'Legal: Attention Required',
+        sublabel: legalAttention.count === 1 ? 'Click to open urgent notice' : 'Multiple notices due soon',
+        count: legalAttention.count, accent: C.red,
+        onClick: () => navigate(legalAttention.count === 1 ? legalAttention.url : '/legal-services'),
+        show: legalAttention.count > 0,
+    },
+    {
+        key: 'legal-reviews',
+        icon: <CheckSquareOutlined />, label: 'Legal: Pending Reviews',
+        sublabel: legalReview.count === 1 ? 'Click to review submission' : 'Workflows awaiting your approval',
+        count: legalReview.count, accent: C.amber,
+        onClick: () => navigate(legalReview.count === 1 ? legalReview.url : '/legal-services'),
+        show: legalReview.count > 0,
+    },
+    {
+        key: 'legal-escalated',
+        icon: <RiseOutlined />, label: 'Legal: Escalated to CEO',
+        sublabel: legalEscalated.count === 1 ? 'Click to resolve escalation' : 'Reviews requiring CEO decision',
+        count: legalEscalated.count, accent: C.purple,
+        onClick: () => navigate(legalEscalated.count === 1 ? legalEscalated.url : '/legal-services'),
+        show: isFounder && legalEscalated.count > 0,
+    },
+
+
+
   ].filter(i=>i.show);
 
   /* ══════════════ JSX ══════════════ */

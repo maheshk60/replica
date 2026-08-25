@@ -102,36 +102,6 @@ JOB_CATEGORY_MODEL_MAP = {
 }
 
 
-# @receiver(post_save, sender=Task)
-# def create_litigation_job_from_task(sender, instance, created, **kwargs):
-#     """
-#     When a new Task is created under a SubService tagged with a
-#     job_category that legal_services recognizes, automatically create
-#     the matching job row (TDSLitigation / IncomeTaxLitigation / MCACase /
-#     FEMACase / PartnershipCase) so it appears as a card in the
-#     corresponding grid.
-#     """
-#     if not created:
-#         return
-
-#     sub_service = instance.sub_service
-#     if not sub_service or not sub_service.job_category or not instance.client:
-#         return
-
-#     job_category = sub_service.job_category.strip().lower()
-#     model_cls = JOB_CATEGORY_MODEL_MAP.get(job_category)
-#     if not model_cls:
-#         return  # not ours — ignore silently, including null/blank
-
-#     create_kwargs = {
-#         'client': instance.client,
-#         'due_date': instance.due_date,
-#         'created_by': instance.created_by,
-#     }
-#     if model_cls in (TDSLitigation, IncomeTaxLitigation):
-#         create_kwargs['sub_service'] = sub_service
-
-#     model_cls.objects.create(**create_kwargs)
 
 
 @receiver(post_save, sender=Task)

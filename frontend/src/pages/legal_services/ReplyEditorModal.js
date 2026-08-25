@@ -2608,10 +2608,15 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
   // ✅ Fetch Supporting Docs for this Reply
   useEffect(() => {
     if (replyId) {
-      api.get('/legal-services/notice-documents/', { params: { notice: noticeId, reply_version: replyId } })
+      api.get('/legal-services/notice-documents/', { params: { notice: noticeId } })
         .then(res => {
           const list = Array.isArray(res.data) ? res.data : (res.data.results || []);
-          setExistingSupports(list.filter(d => ['pending_support', 'supporting_doc'].includes(d.doc_type)));
+          // 🔴 STRICT FRONTEND FILTER: Only keep supports linked to THIS replyId
+          const mySupports = list.filter(d => 
+            ['pending_support', 'supporting_doc'].includes(d.doc_type) && 
+            String(d.reply_version) === String(replyId)
+          );
+          setExistingSupports(mySupports);
         })
         .catch(() => setExistingSupports([]));
     } else {
@@ -2723,7 +2728,7 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
 
   const flushAndClose = () => { if (canMakerEdit && hasUnsavedChanges()) { if (!window.confirm('Unsaved changes. Close anyway?')) return; } onClose && onClose(); };
 
-  // ✅ Attach supports to reply
+  // ✅ Attach supports to exactly this HTML reply ID and refresh locally
   const uploadNewSupports = async (parentReplyId) => {
     if (newSupportFiles.length === 0) return;
     for (const file of newSupportFiles) {
@@ -2735,10 +2740,17 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
       await api.post('/legal-services/notice-documents/', fd);
     }
     setNewSupportFiles([]);
+    
+    // Reload only supports for this specific HTML reply
     try {
-      const res = await api.get('/legal-services/notice-documents/', { params: { notice: noticeId, reply_version: parentReplyId } });
+      const res = await api.get('/legal-services/notice-documents/', { params: { notice: noticeId } });
       const list = Array.isArray(res.data) ? res.data : (res.data.results || []);
-      setExistingSupports(list.filter(d => ['pending_support', 'supporting_doc'].includes(d.doc_type)));
+      // 🔴 STRICT FRONTEND FILTER
+      const mySupports = list.filter(d => 
+        ['pending_support', 'supporting_doc'].includes(d.doc_type) && 
+        String(d.reply_version) === String(parentReplyId)
+      );
+      setExistingSupports(mySupports);
     } catch {}
   };
 

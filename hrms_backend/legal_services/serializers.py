@@ -538,7 +538,7 @@ class CaseNoticeSerializer(serializers.ModelSerializer):
     replies_count     = serializers.SerializerMethodField()
     documents         = serializers.SerializerMethodField()
 
-    # ✅ NEW: Context fields for cross-case notice listing
+    # NEW: Context fields for cross-case notice listing
     client_id         = serializers.IntegerField(source='court_case.client_id', read_only=True)
     client_name       = serializers.CharField(source='court_case.client.name', read_only=True)
     litigation_type   = serializers.CharField(source='court_case.litigation_type', read_only=True)

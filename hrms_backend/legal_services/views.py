@@ -74,17 +74,34 @@ def _get_doc_context(request):
 # ═══════════════════════════════════════════════════════════════════
 # TDS LITIGATION VIEWSET
 # ═══════════════════════════════════════════════════════════════════
-class TDSLitigationViewSet(RoleScopedQuerysetMixin, viewsets.ModelViewSet):
-    queryset = TDSLitigation.objects.select_related(
-        'client', 'created_by'
-    ).prefetch_related('assigned_to', 'makers', 'checkers').all()
+class TDSLitigationViewSet(viewsets.ModelViewSet):
     serializer_class = TDSLitigationSerializer
     permission_classes = [IsAdminOrAssignedOnly]
     parser_classes = [parsers.MultiPartParser, parsers.FormParser, parsers.JSONParser]
-
     filterset_fields = ['client', 'status']
 
-    @action(detail=True, methods=['post'], url_path='assign-mc')
+    def get_queryset(self):
+        qs = TDSLitigation.objects.select_related(
+            'client', 'created_by', 'sub_service', 'task'
+        ).prefetch_related('assigned_to', 'makers', 'checkers').all()
+
+        client = self.request.query_params.get('client')
+        if client:
+            qs = qs.filter(client_id=client)
+
+        status = self.request.query_params.get('status')
+        if status:
+            qs = qs.filter(status=status)
+
+        user = self.request.user
+        # Admin / Founder / Manager / Team Lead → all jobs
+        if is_admin_role(user):
+            return qs
+
+        # Maker / Checker → only jobs they are assigned on
+        return qs.filter(Q(makers=user) | Q(checkers=user)).distinct()
+
+    @action(detail=True, methods=['post'], url_path='assign-mc')    
     def assign_mc(self, request, pk=None):
         case = self.get_object()
 
@@ -125,15 +142,30 @@ class TDSLitigationViewSet(RoleScopedQuerysetMixin, viewsets.ModelViewSet):
 # ═══════════════════════════════════════════════════════════════════
 # INCOME TAX LITIGATION VIEWSET
 # ═══════════════════════════════════════════════════════════════════
-class IncomeTaxLitigationViewSet(RoleScopedQuerysetMixin, viewsets.ModelViewSet):
-    queryset = IncomeTaxLitigation.objects.select_related(
-        'client', 'created_by'
-    ).prefetch_related('assigned_to').all()
+class IncomeTaxLitigationViewSet(viewsets.ModelViewSet):
     serializer_class = IncomeTaxLitigationSerializer
     permission_classes = [IsAdminOrAssignedOnly]
     parser_classes = [parsers.MultiPartParser, parsers.FormParser, parsers.JSONParser]
-
     filterset_fields = ['client', 'status']
+
+    def get_queryset(self):
+        qs = IncomeTaxLitigation.objects.select_related(
+            'client', 'created_by', 'sub_service', 'task'
+        ).prefetch_related('assigned_to', 'makers', 'checkers').all()
+
+        client = self.request.query_params.get('client')
+        if client:
+            qs = qs.filter(client_id=client)
+
+        status = self.request.query_params.get('status')
+        if status:
+            qs = qs.filter(status=status)
+
+        user = self.request.user
+        if is_admin_role(user):
+            return qs
+
+        return qs.filter(Q(makers=user) | Q(checkers=user)).distinct()
 
     @action(detail=True, methods=['post'], url_path='assign-mc')
     def assign_mc(self, request, pk=None):
@@ -331,12 +363,14 @@ class CourtCaseViewSet(viewsets.ModelViewSet):
     permission_classes = [IsMakerOrAdminEdit]
 
     def get_queryset(self):
-        qs = CourtCase.objects.all().select_related('created_by').prefetch_related('makers', 'checkers', 'status_logs')
-        user = self.request.user
+        qs = CourtCase.objects.all().select_related(
+            'created_by', 'client'
+        ).prefetch_related('makers', 'checkers', 'status_logs', 'notices')
 
+        user = self.request.user
         client_id = self.request.query_params.get('client')
         litigation_type = self.request.query_params.get('litigation_type')
-        job_id = self.request.query_params.get('job_id')   # ✅ ADD THIS LINE
+        job_id = self.request.query_params.get('job_id')
 
         if client_id:
             qs = qs.filter(client_id=client_id)
@@ -345,19 +379,22 @@ class CourtCaseViewSet(viewsets.ModelViewSet):
         if job_id:
             qs = qs.filter(job_id=job_id)
 
+        # Admin roles see all (still limited by query params above)
         if is_admin_role(user):
             return qs
 
-        tds_client_ids = TDSLitigation.objects.filter(
+        # Non-admin: only CourtCases for jobs they are Maker/Checker on
+        tds_job_ids = TDSLitigation.objects.filter(
             Q(makers=user) | Q(checkers=user)
-        ).values_list('client_id', flat=True)
-        it_client_ids = IncomeTaxLitigation.objects.filter(
+        ).values_list('id', flat=True)
+
+        it_job_ids = IncomeTaxLitigation.objects.filter(
             Q(makers=user) | Q(checkers=user)
-        ).values_list('client_id', flat=True)
+        ).values_list('id', flat=True)
 
         return qs.filter(
-            Q(litigation_type='tds', client_id__in=tds_client_ids) |
-            Q(litigation_type='income-tax', client_id__in=it_client_ids)
+            Q(litigation_type='tds', job_id__in=tds_job_ids) |
+            Q(litigation_type='income-tax', job_id__in=it_job_ids)
         ).distinct()
 
     # ─────────────────────────────────────────────────────────────
@@ -854,9 +891,6 @@ class LegalAuditTrailView(APIView):
 
 
 
-
-
-
 # ═══════════════════════════════════════════════════════════════════
 # REVIEW WORKFLOW HELPERS
 # ═══════════════════════════════════════════════════════════════════
@@ -1037,24 +1071,26 @@ def _apply_review_action(review):
 
 def _update_notice_status_from_workflow(notice):
     """
-    Auto-computes notice status based on workflow state:
-    - Under Review: any pending reply, ack, or notice_edit
-    - Open: acknowledgment approved
-    - WIP: default state
-    - Closed: manually set (not touched here)
+    Auto-computes notice status based on workflow state.
     """
-
-    # Check for pending items
+    # 1. Check for pending HTML replies (Write button)
     has_pending_reply = notice.replies.filter(
         status__in=['pending', 'escalated']
     ).exists()
 
+    # 2. ✅ NEW: Check for pending Uploaded PDF/Word replies (Upload button)
+    has_pending_doc_reply = notice.documents.filter(
+        doc_type__in=['pending', 'reply'],
+        review_status__in=['pending', 'escalated']
+    ).exists()
+
+    # 3. Check for pending acknowledgment
     has_pending_ack = notice.documents.filter(
         doc_type='acknowledgment',
         review_status__in=['pending', 'escalated']
     ).exists()
 
-    # Check for pending notice_edit review
+    # 4. Check for pending notice_edit review
     from .models import ReviewRequest
     has_pending_edit = ReviewRequest.objects.filter(
         court_case=notice.court_case,
@@ -1063,10 +1099,11 @@ def _update_notice_status_from_workflow(notice):
         payload__notice_id=notice.id,
     ).exists()
 
-    if has_pending_reply or has_pending_ack or has_pending_edit:
+    # ✅ If ANY of these 4 things are pending, status becomes UNDER REVIEW
+    if has_pending_reply or has_pending_doc_reply or has_pending_ack or has_pending_edit:
         new_status = 'under_review'
     else:
-        # No pending items — check if ack is approved for OPEN
+        # No pending items — check if ack is approved to close the notice
         has_approved_ack = notice.documents.filter(
             doc_type='acknowledgment',
             review_status='approved'
@@ -1077,11 +1114,10 @@ def _update_notice_status_from_workflow(notice):
         else:
             new_status = 'wip'
 
+    # Save to database if changed
     if notice.status != new_status:
         notice.status = new_status
         notice.save(update_fields=['status', 'updated_at'])
-
-
 
 # ═══════════════════════════════════════════════════════════════════
 # REVIEW REQUEST VIEWSET
@@ -1118,27 +1154,21 @@ class ReviewRequestViewSet(viewsets.ReadOnlyModelViewSet):
         if litigation_type:
             qs = qs.filter(court_case__litigation_type=litigation_type)
 
-        # Admins see everything
         if is_admin_role(user):
             return qs
 
-        # ── Non-admins: include reviews on cases they're assigned to
-        # via parent Litigation (since CourtCase.makers/checkers may be empty
-        # while TDS/IT Litigation.makers/checkers hold the actual assignments)
-        tds_client_ids = TDSLitigation.objects.filter(
+        tds_job_ids = TDSLitigation.objects.filter(
             Q(makers=user) | Q(checkers=user)
-        ).values_list('client_id', flat=True)
+        ).values_list('id', flat=True)
 
-        it_client_ids = IncomeTaxLitigation.objects.filter(
+        it_job_ids = IncomeTaxLitigation.objects.filter(
             Q(makers=user) | Q(checkers=user)
-        ).values_list('client_id', flat=True)
+        ).values_list('id', flat=True)
 
         return qs.filter(
             Q(submitted_by=user) |
-            Q(court_case__checkers=user) |
-            Q(court_case__makers=user) |
-            Q(court_case__litigation_type='tds', court_case__client_id__in=tds_client_ids) |
-            Q(court_case__litigation_type='income-tax', court_case__client_id__in=it_client_ids)
+            Q(court_case__litigation_type='tds', court_case__job_id__in=tds_job_ids) |
+            Q(court_case__litigation_type='income-tax', court_case__job_id__in=it_job_ids)
         ).distinct()
 
     @action(detail=True, methods=['post'], url_path='approve')
@@ -1241,27 +1271,26 @@ class ReviewRequestViewSet(viewsets.ReadOnlyModelViewSet):
         )
 
         if is_founder(user) or getattr(user, 'is_superuser', False):
-            # Founder sees escalated + all pending
             qs = qs.filter(Q(status='pending') | Q(status='escalated'))
         elif is_admin_role(user):
-            # Admin/Manager see pending + escalated
             qs = qs.filter(Q(status='pending') | Q(status='escalated'))
         else:
-            # Checker sees pending on cases they're assigned to (via Litigation)
-            tds_client_ids = TDSLitigation.objects.filter(
+            # Checker inbox: only jobs where THIS user is checker
+            tds_job_ids = TDSLitigation.objects.filter(
                 checkers=user
-            ).values_list('client_id', flat=True)
-            it_client_ids = IncomeTaxLitigation.objects.filter(
+            ).values_list('id', flat=True)
+            it_job_ids = IncomeTaxLitigation.objects.filter(
                 checkers=user
-            ).values_list('client_id', flat=True)
+            ).values_list('id', flat=True)
 
             qs = qs.filter(status='pending').filter(
-                Q(court_case__checkers=user) |
-                Q(court_case__litigation_type='tds', court_case__client_id__in=tds_client_ids) |
-                Q(court_case__litigation_type='income-tax', court_case__client_id__in=it_client_ids)
+                Q(court_case__litigation_type='tds', court_case__job_id__in=tds_job_ids) |
+                Q(court_case__litigation_type='income-tax', court_case__job_id__in=it_job_ids)
             ).distinct()
 
-        return Response(ReviewRequestSerializer(qs, many=True, context={'request': request}).data)
+        return Response(
+            ReviewRequestSerializer(qs, many=True, context={'request': request}).data
+        )
 
 
 
@@ -1331,64 +1360,46 @@ class CaseNoticeViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     parser_classes     = [MultiPartParser, FormParser, JSONParser]
 
-    # def get_queryset(self):
-    #     qs = CaseNotice.objects.prefetch_related('documents').all()
-    #     court_case_id = self.request.query_params.get('court_case')
-    #     if court_case_id:
-    #         qs = qs.filter(court_case_id=court_case_id)
-    #     return qs
-
-    # def perform_create(self, serializer):
-    #     user     = self.request.user
-    #     instance = serializer.save(created_by=user)
-    #     log_event(
-    #         client_id=instance.court_case.client_id,
-    #         litigation_type=instance.court_case.litigation_type,
-    #         court_case=instance.court_case,
-    #         job_id=instance.court_case.job_id,
-    #         event_type='notice_created',
-    #         title=f'Notice created — DIN: {instance.din_number or "N/A"}',
-    #         user=user,
-    #         new_values={
-    #             'din_number':  instance.din_number,
-    #             'officer':     instance.officer,
-    #             'notice_date': str(instance.notice_date) if instance.notice_date else None,
-    #             'due_date':    str(instance.due_date) if instance.due_date else None,
-    #         }
-    #     )
-
+    
     def get_queryset(self):
         qs = CaseNotice.objects.select_related(
             'court_case', 'court_case__client', 'created_by', 'reviewed_by'
         ).prefetch_related('documents', 'replies').all()
 
-        court_case_id   = self.request.query_params.get('court_case')
-        litigation_type = self.request.query_params.get('litigation_type')   
-        client_id       = self.request.query_params.get('client')            
-        job_id          = self.request.query_params.get('job_id')
+        court_case_id = self.request.query_params.get('court_case')
+        litigation_type = self.request.query_params.get('litigation_type')
+        client_id = self.request.query_params.get('client')
+        job_id = self.request.query_params.get('job_id')
 
+        # Optional request filters (AND) — safe extras
         if court_case_id:
             qs = qs.filter(court_case_id=court_case_id)
-        if litigation_type:                                                    
+        if litigation_type:
             qs = qs.filter(court_case__litigation_type=litigation_type)
-        if client_id:                                                          
+        if client_id:
             qs = qs.filter(court_case__client_id=client_id)
-        if job_id:                                                      
+        if job_id:
             qs = qs.filter(court_case__job_id=job_id)
 
-        # ✅ Role-based filtering: non-admins see only assigned cases
         user = self.request.user
-        if not is_admin_role(user):
-            tds_client_ids = TDSLitigation.objects.filter(
-                Q(makers=user) | Q(checkers=user)
-            ).values_list('client_id', flat=True)
-            it_client_ids = IncomeTaxLitigation.objects.filter(
-                Q(makers=user) | Q(checkers=user)
-            ).values_list('client_id', flat=True)
-            qs = qs.filter(
-                Q(court_case__litigation_type='tds', court_case__client_id__in=tds_client_ids) |
-                Q(court_case__litigation_type='income-tax', court_case__client_id__in=it_client_ids)
-            ).distinct()
+
+        # Admin roles: all notices (after optional filters)
+        if is_admin_role(user):
+            return qs.order_by('-created_at')
+
+        # Notices belong to CourtCase; CourtCase.job_id → TDS/IT job
+        tds_job_ids = TDSLitigation.objects.filter(
+            Q(makers=user) | Q(checkers=user)
+        ).values_list('id', flat=True)
+
+        it_job_ids = IncomeTaxLitigation.objects.filter(
+            Q(makers=user) | Q(checkers=user)
+        ).values_list('id', flat=True)
+
+        qs = qs.filter(
+            Q(court_case__litigation_type='tds', court_case__job_id__in=tds_job_ids) |
+            Q(court_case__litigation_type='income-tax', court_case__job_id__in=it_job_ids)
+        ).distinct()
 
         return qs.order_by('-created_at')
 

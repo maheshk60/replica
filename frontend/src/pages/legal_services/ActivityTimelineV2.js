@@ -1989,8 +1989,6 @@ function NoticeDetailView({
   const canDeleteFile = (item) => isAssignedMaker && ['draft', 'rejected'].includes(item.review_status || item.status);
 
   const handleDeleteHtmlReply = (reply) => {
-    const supports = supportDocs.filter(sd => String(sd.reply_version) === String(reply.id));
-    supports.forEach(sd => onDeleteDoc(sd.id));
     onDeleteReply(reply);
   };
 
@@ -2258,17 +2256,36 @@ export default function ActivityTimelineV2({ activityCase, subServiceName, canEd
   const { pendingReviewLabels, hasPendingNoticeEdit } = React.useMemo(() => {
     if (!selectedNoticeDetails) return { pendingReviewLabels: [], hasPendingNoticeEdit: false };
     const pendingTypes = [];
-    if (allReplies.some(r => ['pending', 'escalated'].includes(r.status))) pendingTypes.push('Reply');
-    if ((selectedNoticeDetails.documents || []).some(d => d.doc_type === 'acknowledgment' && ['pending', 'escalated'].includes(d.review_status))) pendingTypes.push('Acknowledgment');
+    
+    // ✅ Check if HTML Reply (Write) is pending
+    const hasHtmlPending = allReplies.some(r => ['pending', 'escalated'].includes(r.status));
+    
+    // ✅ Check if Uploaded Reply (Upload) is pending
+    const hasDocReplyPending = (selectedNoticeDetails.documents || []).some(d => 
+      ['pending', 'reply'].includes(d.doc_type) && ['pending', 'escalated'].includes(d.review_status)
+    );
+
+    // If EITHER is pending, show the "Reply Pending" chip
+    if (hasHtmlPending || hasDocReplyPending) {
+      pendingTypes.push('Reply');
+    }
+
+    if ((selectedNoticeDetails.documents || []).some(d => d.doc_type === 'acknowledgment' && ['pending', 'escalated'].includes(d.review_status))) {
+      pendingTypes.push('Acknowledgment');
+    }
+    
     const hasEditPending = pendingNoticeEdits.some(r => r.payload?.notice_id === selectedNoticeDetails.id && r.status === 'pending');
     if (hasEditPending) pendingTypes.push('Info Update');
+    
     let label = '';
     if (pendingTypes.length === 1) label = `${pendingTypes[0]} Pending`;
     else if (pendingTypes.length === 2) label = `${pendingTypes[0]} and ${pendingTypes[1]} Pending`;
     else if (pendingTypes.length > 2) label = `${pendingTypes.slice(0, -1).join(', ')} and ${pendingTypes[pendingTypes.length - 1]} Pending`;
+    
     return { pendingReviewLabels: label ? [label] : [], hasPendingNoticeEdit: hasEditPending };
   }, [selectedNoticeDetails, allReplies, pendingNoticeEdits]);
 
+  
   const saveSummary = async () => {
     setBusy(true); setError('');
     try {
@@ -2354,7 +2371,8 @@ export default function ActivityTimelineV2({ activityCase, subServiceName, canEd
       for (const html of draftHtmls) { try { await api.post(`/legal-services/notice-replies/${html.id}/send-for-review/`); } catch {} }
       await api.post(`/legal-services/notices/${selectedNoticeId}/submit-docs/`);
       showToast('All drafts sent for checker review', 'success');
-      await fetchSelectedNoticeDetails(); fetchNotices();
+      await fetchSelectedNoticeDetails(); fetchNotices(); 
+      if (onUpdated) onUpdated(); 
     } catch (e) { showToast(e?.response?.data?.error || 'Failed to submit', 'error'); } finally { setSubmittingDocs(false); }
   };
 
@@ -2398,7 +2416,7 @@ export default function ActivityTimelineV2({ activityCase, subServiceName, canEd
       </div>
       {showAddNoticeModal && <AddNoticeModal courtCaseId={activityCase.id} onClose={() => setShowAddNoticeModal(false)} onCreated={() => { setShowAddNoticeModal(false); fetchNotices(); }} />}
       {editNotice && <AddNoticeModal courtCaseId={activityCase.id} editNotice={editNotice} submitForReview={isAssignedMaker && !isFounder} onClose={() => setEditNotice(null)} onCreated={() => { setEditNotice(null); fetchNotices(); fetchSelectedNoticeDetails(); fetchPendingNoticeEdits(); }} />}
-      {replyModalNotice && <ReplyEditorModal noticeId={replyModalNotice.id} notice={replyModalNotice} replyId={null} mode="edit" currentUserId={user?.id} isAssignedMaker={isAssignedMaker} isAssignedChecker={isAssignedChecker} isCeoRole={isCeoRole} onClose={() => setReplyModalNotice(null)} onSaved={(data, action) => { fetchNotices(); fetchSelectedNoticeDetails(); if (['approve', 'reject'].includes(action)) setReplyModalNotice(null); }} />}
+      {replyModalNotice && <ReplyEditorModal noticeId={replyModalNotice.id} notice={replyModalNotice} replyId={null} mode="edit" currentUserId={user?.id} isAssignedMaker={isAssignedMaker} isAssignedChecker={isAssignedChecker} isCeoRole={isCeoRole} onClose={() => setReplyModalNotice(null)} onSaved={(data, action) => { fetchNotices(); fetchSelectedNoticeDetails(); if (onUpdated) onUpdated(); if (['approve', 'reject'].includes(action)) setReplyModalNotice(null); }} />}
       {showCloseCaseModal && <CloseCaseModal courtCaseId={activityCase.id} canEdit={isAssignedMaker && !isCaseClosed} onClose={() => setShowCloseCaseModal(false)} onUpdated={() => { onUpdated && onUpdated(); fetchNotices(); }} />}
       {showUploadReplyBundleModal && selectedNoticeDetails && <UploadReplyBundleModal noticeId={selectedNoticeDetails.id} onClose={() => setShowUploadReplyBundleModal(false)} onSuccess={() => { setShowUploadReplyBundleModal(false); fetchSelectedNoticeDetails(); fetchNotices(); }} />}
     </div>

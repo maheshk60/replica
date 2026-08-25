@@ -1848,14 +1848,14 @@ export default function AppLayout({ children }) {
             </div>
           )}
           <div onClick={() => navigate('/')} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-            <img src={isMobile ? caosalogo : logo} alt="Logo" style={{ height: 40, width: 'auto' }} />
+            {/* <img src={isMobile ? caosalogo : logo} alt="Logo" style={{ height: 40, width: 'auto' }} /> */}
           </div>
         </div>
 
         {/* Centre Logo */}
         {!isMobile && (
           <div onClick={() => navigate('/')} style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', cursor: 'pointer' }}>
-            <img src={caosalogo} alt="CA Office Automation" style={{ height: 40, width: 'auto', objectFit: 'contain' }} />
+            {/* <img src={caosalogo} alt="CA Office Automation" style={{ height: 40, width: 'auto', objectFit: 'contain' }} /> */}
           </div>
         )}
 

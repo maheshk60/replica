@@ -42,49 +42,46 @@ def is_founder(user):
 # CASE-LEVEL ASSIGNMENT HELPERS
 # ══════════════════════════════════════════════════════════════════════
 def is_case_maker(case, user):
-    """
-    Check if user is assigned as Maker on this case.
-    Looks at BOTH direct CourtCase.makers AND parent Litigation.makers
-    (because Assign M/C from list page updates Litigation model,
-     while some flows might update CourtCase directly).
-    """
     if not user or not user.is_authenticated:
         return False
 
-    # First check direct CourtCase assignment
+    # Direct assignment on CourtCase (if ever used)
     if case.makers.filter(id=user.id).exists():
         return True
 
-    # Fallback: check parent litigation assignment
+    job_id = getattr(case, 'job_id', None)
+
     if case.litigation_type == 'tds':
-        return TDSLitigation.objects.filter(
-            client=case.client, makers=user
-        ).exists()
+        qs = TDSLitigation.objects.filter(makers=user)
     else:
-        return IncomeTaxLitigation.objects.filter(
-            client=case.client, makers=user
-        ).exists()
+        qs = IncomeTaxLitigation.objects.filter(makers=user)
+
+    # ✅ Prefer exact job (no cross-job leak)
+    if job_id:
+        return qs.filter(id=job_id).exists()
+
+    # Fallback only for old CourtCase rows with null job_id
+    return qs.filter(client=case.client).exists()
 
 
 def is_case_checker(case, user):
-    """
-    Check if user is assigned as Checker on this case.
-    Same dual-check as maker.
-    """
     if not user or not user.is_authenticated:
         return False
 
     if case.checkers.filter(id=user.id).exists():
         return True
 
+    job_id = getattr(case, 'job_id', None)
+
     if case.litigation_type == 'tds':
-        return TDSLitigation.objects.filter(
-            client=case.client, checkers=user
-        ).exists()
+        qs = TDSLitigation.objects.filter(checkers=user)
     else:
-        return IncomeTaxLitigation.objects.filter(
-            client=case.client, checkers=user
-        ).exists()
+        qs = IncomeTaxLitigation.objects.filter(checkers=user)
+
+    if job_id:
+        return qs.filter(id=job_id).exists()
+
+    return qs.filter(client=case.client).exists()
 
 
 # ══════════════════════════════════════════════════════════════════════

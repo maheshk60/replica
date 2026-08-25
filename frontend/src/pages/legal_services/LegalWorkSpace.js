@@ -646,15 +646,21 @@ const S = {
   }),
 };
 
+
+
+
 export default function LegalWorkSpace() {
+
   const { clientId } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
 
+  const isInvalidClient = !clientId || clientId === 'undefined' || clientId === 'null';
+
   const caseType = searchParams.get('type') || 'tds';
   const litigationEndpoint = caseType === 'income-tax' ? 'income-tax-litigations' : 'tds-litigations';
-  const caseId = searchParams.get('caseId');   // ✅ NEW — the specific job ID
+  const caseId = searchParams.get('caseId');   
 
   const fileInputRefs = useRef({});
 
@@ -704,18 +710,10 @@ export default function LegalWorkSpace() {
       .catch(() => setConstitutions([]));
   }, []);
 
-  // useEffect(() => {
-  //   let active = true;
-  //   setLoading(true);
-  //   setError(null);
-  //   api.get(`/clients/clients/${clientId}/`)
-  //     .then((res) => { if (active) setClient(res.data); })
-  //     .catch(() => active && setError('Failed to load client details.'))
-  //     .finally(() => active && setLoading(false));
-  //   return () => { active = false; };
-  // }, [clientId]);
 
   useEffect(() => {
+    if (isInvalidClient) return;
+
     let active = true;
     setLoading(true);
     setError(null);
@@ -739,6 +737,7 @@ export default function LegalWorkSpace() {
 
 
   useEffect(() => {
+    if (isInvalidClient) return;
     if (!clientId) return;
     setTeamLoading(true);
 
@@ -781,6 +780,7 @@ export default function LegalWorkSpace() {
 
   const [combinedMakerIds, setCombinedMakerIds] = useState([]);
   useEffect(() => {
+    if (isInvalidClient) return;
     if (!clientId) return;
     Promise.all([
       api.get(`/legal-services/tds-litigations/?client=${clientId}`).catch(() => ({ data: [] })),
@@ -905,9 +905,14 @@ export default function LegalWorkSpace() {
   const visibleLabels = labels.filter((lbl) => statusFilter === 'all' || lbl.label === statusFilter);
 
   const [pendingReview, setPendingReview] = useState(null);
+  const [activeReviewCount, setActiveReviewCount] = useState(0); // ✅ ADDED
 
   const loadPendingReview = () => {
-    if (!activityCase?.id) { setPendingReview(null); return; }
+    if (!activityCase?.id) { 
+      setPendingReview(null); 
+      setActiveReviewCount(0); // ✅ ADDED
+      return; 
+    }
     reviewApi.list({ court_case: activityCase.id })
       .then((res) => {
         const data = Array.isArray(res.data) ? res.data : (res.data.results || []);
@@ -915,8 +920,12 @@ export default function LegalWorkSpace() {
           .filter((r) => r.status === 'pending' || r.status === 'escalated')
           .sort((a, b) => new Date(b.submitted_at) - new Date(a.submitted_at));
         setPendingReview(active[0] || null);
+        setActiveReviewCount(active.length); // ✅ ADDED: Stores the exact number of pending reviews
       })
-      .catch(() => setPendingReview(null));
+      .catch(() => {
+        setPendingReview(null);
+        setActiveReviewCount(0); // ✅ ADDED
+      });
   };
 
   useEffect(() => {
@@ -925,6 +934,33 @@ export default function LegalWorkSpace() {
   }, [activityCase?.id, refreshTick]);
 
   
+  // const loadActivityCase = () => {
+  //   if (!caseData?.id) {
+  //     setActivityCase(null);
+  //     return;
+  //   }
+
+  //   setActivityLoading(true);
+  //   setActivityError(null);
+
+  //   courtCaseApi.list(clientId, activityLitigationType, caseData.id)
+  //     .then((res) => {
+  //       const data = Array.isArray(res.data) ? res.data : (res.data.results || []);
+  //       // Backend already filters by job_id, so there should be at most one match
+  //       const matchingCase = data.find((cc) =>
+  //         cc.litigation_type === activityLitigationType &&
+  //         cc.job_id === caseData.id
+  //       );
+  //       if (matchingCase) {
+  //         setActivityCase(matchingCase);
+  //       } else {
+  //         setActivityCase(null);
+  //       }
+  //     })
+  //     .catch(() => setActivityError('Failed to load case.'))
+  //     .finally(() => setActivityLoading(false));
+  // };
+
   const loadActivityCase = () => {
     if (!caseData?.id) {
       setActivityCase(null);
@@ -937,7 +973,6 @@ export default function LegalWorkSpace() {
     courtCaseApi.list(clientId, activityLitigationType, caseData.id)
       .then((res) => {
         const data = Array.isArray(res.data) ? res.data : (res.data.results || []);
-        // Backend already filters by job_id, so there should be at most one match
         const matchingCase = data.find((cc) =>
           cc.litigation_type === activityLitigationType &&
           cc.job_id === caseData.id
@@ -948,9 +983,15 @@ export default function LegalWorkSpace() {
           setActivityCase(null);
         }
       })
-      .catch(() => setActivityError('Failed to load case.'))
+      .catch((err) => {
+        // ✅ Graceful error handling
+        console.error("Case Fetch Error:", err);
+        setActivityError('You do not have permission to view this case, or it does not exist.');
+      })
       .finally(() => setActivityLoading(false));
   };
+
+
 
 
   useEffect(() => {
@@ -1054,6 +1095,22 @@ export default function LegalWorkSpace() {
 
   const handleDeleteLabel = (id) => openDeleteModal('label', id);
   const handleDeleteDoc = (id) => openDeleteModal('doc', id);
+
+  if (isInvalidClient) {
+    return (
+      <div style={{ padding: '60px 20px', textAlign: 'center', fontFamily: 'inherit', background: '#f8f9fc', minHeight: '100vh' }}>
+        <h2 style={{ color: '#dc2626', marginBottom: 8 }}>Invalid Case Link</h2>
+        <p style={{ color: '#6b7280', marginBottom: 20 }}>We couldn't find valid client details for this link.</p>
+        <button 
+          onClick={() => navigate('/legal-services/litigations')}
+          style={{ padding: '10px 20px', background: '#1A2F5A', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}
+        >
+          Return to Dashboard
+        </button>
+      </div>
+    );
+  }
+
 
   if (loading) return (
     <div style={S.container}>
@@ -1207,7 +1264,7 @@ export default function LegalWorkSpace() {
               { key: 'details', label: 'Client Details', icon: '👤' },
               { key: 'documents', label: 'Documents', icon: '📁' },
               { key: 'activity', label: 'Activity', icon: '🕐' },
-              { key: 'review', label: 'Review', icon: '🔍' },
+              { key: 'review', label: 'Review', icon: '🔍', count: activeReviewCount },
               { key: 'team', label: 'Team', icon: '👥' },
               { key: 'audit', label: 'Audit Trail', icon: '🕐' },
             ].map((tab) => (
