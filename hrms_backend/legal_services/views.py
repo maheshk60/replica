@@ -606,258 +606,6 @@ class CourtCaseViewSet(viewsets.ModelViewSet):
         )
         return Response(self.get_serializer(case).data)
 
-    # ─────────────────────────────────────────────────────────────
-    # LEGACY — SUBMIT TO COURT / COURT RESPONSE / HEARING OUTCOME
-    # (kept for backward compatibility)
-    # ─────────────────────────────────────────────────────────────
-    @action(detail=True, methods=['post'], url_path='submit-to-court')
-    def submit_to_court(self, request, pk=None):
-        case = self.get_object()
-        user = request.user
-        if not _is_maker_or_admin(case, user):
-            return Response({'error': 'Only the assigned Maker or Admin/Founder/Manager can submit this case.'}, status=403)
-        if case.status != 'wip':
-            return Response({'error': 'Case must be WIP to submit to court.'}, status=400)
-        if case.submitted_to_court and case.court_response == 'pending':
-            return Response({'error': 'Case is already awaiting a court response.'}, status=400)
-
-        case.submitted_to_court = True
-        case.court_response = 'pending'
-        case.save(update_fields=['submitted_to_court', 'court_response', 'updated_at'])
-        CourtCaseStatusLog.objects.create(
-            case=case, old_status='wip', new_status='wip',
-            note='Submitted to court — pending acceptance', changed_by=user
-        )
-        return Response(self.get_serializer(case).data)
-
-    @action(detail=True, methods=['post'], url_path='court-response')
-    def court_response_action(self, request, pk=None):
-        case = self.get_object()
-        user = request.user
-        if not _is_maker_or_admin(case, user):
-            return Response({'error': 'Only the assigned Maker or Admin/Founder/Manager can log the court response.'}, status=403)
-        if not (case.submitted_to_court and case.court_response == 'pending'):
-            return Response({'error': 'Case is not currently awaiting a court response.'}, status=400)
-
-        response_value = request.data.get('response')
-
-        if response_value == 'rejected':
-            reason = request.data.get('rejection_reason')
-            if not reason:
-                return Response({'error': 'Rejection reason is required.'}, status=400)
-            case.court_response = 'rejected'
-            case.rejection_reason = reason
-            case.submitted_to_court = False
-            case.save(update_fields=['court_response', 'rejection_reason', 'submitted_to_court', 'updated_at'])
-            CourtCaseStatusLog.objects.create(
-                case=case, old_status='wip', new_status='wip',
-                note=f'Court rejected submission: {reason}', changed_by=user
-            )
-            return Response(self.get_serializer(case).data)
-
-        if response_value == 'accepted':
-            next_date = request.data.get('next_hearing_date')
-            if not next_date:
-                return Response({'error': 'Next hearing date is required when the court accepts.'}, status=400)
-            old_status = case.status
-            case.court_response = 'accepted'
-            case.next_hearing_date = next_date
-            case.status = 'open'
-            case.save(update_fields=['court_response', 'next_hearing_date', 'status', 'updated_at'])
-            CourtCaseStatusLog.objects.create(
-                case=case, old_status=old_status, new_status='open',
-                note='Court accepted — hearing scheduled', changed_by=user
-            )
-            return Response(self.get_serializer(case).data)
-
-        return Response({'error': "response must be 'accepted' or 'rejected'."}, status=400)
-
-    @action(detail=True, methods=['post'], url_path='log-hearing-outcome')
-    def log_hearing_outcome(self, request, pk=None):
-        case = self.get_object()
-        user = request.user
-        if not _is_maker_or_admin(case, user):
-            return Response({'error': 'Only the assigned Maker or Admin/Founder/Manager can log a hearing outcome.'}, status=403)
-        if case.status != 'wip':
-            return Response({'error': 'Hearing outcomes can only be logged while the case is WIP.'}, status=400)
-        if not (case.submitted_to_court and case.court_response == 'accepted'):
-            return Response({'error': 'This case has no pending hearing outcome to log.'}, status=400)
-
-        outcome = request.data.get('outcome')
-
-        if outcome == 'next_date':
-            next_date = request.data.get('next_hearing_date')
-            if not next_date:
-                return Response({'error': 'Next hearing date is required.'}, status=400)
-            case.next_hearing_date = next_date
-            case.status = 'open'
-            case.save(update_fields=['next_hearing_date', 'status', 'updated_at'])
-            CourtCaseStatusLog.objects.create(
-                case=case, old_status='wip', new_status='open',
-                note=request.data.get('note', 'Hearing adjourned — new date set'), changed_by=user
-            )
-            return Response(self.get_serializer(case).data)
-
-        if outcome == 'disposed':
-            close_reason = request.data.get('close_reason')
-            if not close_reason:
-                return Response({'error': 'Close reason is required.'}, status=400)
-            if not case.checker_approved_close:
-                return Response({'error': 'Checker approval is required before closing.'}, status=400)
-            case.status = 'closed'
-            case.close_reason = close_reason
-            case.save(update_fields=['status', 'close_reason', 'updated_at'])
-            CourtCaseStatusLog.objects.create(
-                case=case, old_status='wip', new_status='closed',
-                note=close_reason, changed_by=user
-            )
-            return Response(self.get_serializer(case).data)
-
-        return Response({'error': "outcome must be 'next_date' or 'disposed'."}, status=400)
-
-    # ─────────────────────────────────────────────────────────────
-    # SUBMIT APPEAL — Maker submits for review; Admin bypass
-    # ─────────────────────────────────────────────────────────────
-    @action(detail=True, methods=['post'], url_path='submit-appeal')
-    def submit_appeal(self, request, pk=None):
-        case = self.get_object()
-        user = request.user
-
-        if not (is_admin_role(user) or is_case_maker(case, user)):
-            return Response({'error': 'Not authorized.'}, status=403)
-
-        data = request.data
-        note = (data.get('note') or '').strip()
-        if not note:
-            return Response({'error': 'Description is required.'}, status=400)
-
-        payload = {
-            'case_title':        data.get('case_title', ''),
-            'officer':           data.get('officer', ''),
-            'din_number':        data.get('din_number', ''),
-            'notice_date':       data.get('notice_date', '') or None,
-            'due_date':          data.get('due_date', '') or None,
-            'ph_date':           data.get('ph_date', '') or None,
-            'case_type':         data.get('case_type', ''),
-            'appeal_stage':      data.get('appeal_stage', ''),
-            'next_hearing_date': data.get('next_hearing_date', '') or None,  # ← keep separate
-            'note':              note,
-        }
-
-        if is_admin_role(user):
-            fake_review = ReviewRequest(court_case=case, action_type='appeal',
-                                        payload=payload, submitted_by=user)
-            _apply_review_action(fake_review)
-            return Response(self.get_serializer(case).data)
-
-        review = _submit_review(case, 'appeal', payload, user)
-        return Response({
-            'review_submitted': True,
-            'review_id': review.id,
-            'message': 'Appeal submitted for checker review.',
-            **self.get_serializer(case).data,
-        })
-
-    # ─────────────────────────────────────────────────────────────
-    # LOG ADJOURNMENT — Maker submits for review; Admin bypass
-    # ─────────────────────────────────────────────────────────────
-    @action(detail=True, methods=['post'], url_path='log-adjournment')
-    def log_adjournment(self, request, pk=None):
-        case = self.get_object()
-        user = request.user
-
-        if not (is_admin_role(user) or is_case_maker(case, user)):
-            return Response({'error': 'Not authorized.'}, status=403)
-
-        data = request.data
-        reason = (data.get('reason') or '').strip() or None
-        new_date = (data.get('next_hearing_date') or '').strip() or None
-        comment = (data.get('comment') or '').strip()
-
-        if not reason:
-            return Response({'error': 'Reason is required.'}, status=400)
-        if not new_date:
-            return Response({'error': 'New date is required.'}, status=400)
-        if not comment:
-            return Response({'error': 'Description is required.'}, status=400)
-
-        payload = {
-            'postpone_type':     data.get('postpone_type', 'adjournment'),
-            'reason':            reason,
-            'next_hearing_date': new_date,
-            'comment':           comment,
-            'case_number':       (data.get('case_number') or '').strip(),
-            'court_name':        (data.get('court_name') or '').strip(),
-        }
-
-        if is_admin_role(user):
-            fake_review = ReviewRequest(court_case=case, action_type='adjournment',
-                                        payload=payload, submitted_by=user)
-            _apply_review_action(fake_review)
-            return Response(self.get_serializer(case).data)
-
-        review = _submit_review(case, 'adjournment', payload, user)
-        return Response({
-            'review_submitted': True,
-            'review_id': review.id,
-            'message': 'Adjournment submitted for checker review.',
-            **self.get_serializer(case).data,
-        })
-
-    # ─────────────────────────────────────────────────────────────
-    # LOG OUTCOME — ONLY Admin/Founder
-    # ─────────────────────────────────────────────────────────────
-    @action(detail=True, methods=['post'], url_path='log-outcome')
-    def log_outcome(self, request, pk=None):
-        case = self.get_object()
-        user = request.user
-
-        if not is_high_admin(user):
-            return Response({'error': 'Only Admin/Founder can log hearing outcome.'}, status=403)
-
-        data = request.data
-        outcome = data.get('outcome')
-        if outcome not in ('won', 'lost'):
-            return Response({'error': "outcome must be 'won' or 'lost'."}, status=400)
-
-        old_status = case.status
-
-        if outcome == 'won':
-            judgement = (data.get('judgement_info') or '').strip()
-            if not judgement:
-                return Response({'error': 'Judgement details are required.'}, status=400)
-            case.status = 'closed'
-            case.close_reason = judgement
-            case.save()
-            CourtCaseStatusLog.objects.create(
-                case=case, event_type='outcome_won',
-                old_status=old_status, new_status='closed',
-                note=judgement, judgement_info=judgement,
-                changed_by=user,
-            )
-        else:
-            next_action = data.get('next_action')
-            comment = (data.get('comment') or '').strip()
-            if next_action not in ('appeal', 'leave'):
-                return Response({'error': "next_action must be 'appeal' or 'leave'."}, status=400)
-            if not comment:
-                return Response({'error': 'Comment is required.'}, status=400)
-
-            if next_action == 'leave':
-                case.status = 'closed'
-                case.close_reason = comment or 'Case lost — not pursuing further'
-            else:
-                case.status = 'wip'
-            case.save()
-
-            CourtCaseStatusLog.objects.create(
-                case=case, event_type='outcome_lost',
-                old_status=old_status, new_status=case.status,
-                note=comment, next_action=next_action,
-                changed_by=user,
-            )
-        return Response(self.get_serializer(case).data)
-
 
 # ═══════════════════════════════════════════════════════════════════
 # LEGAL AUDIT TRAIL VIEW
@@ -944,50 +692,6 @@ def _apply_review_action(review):
         return
 
     
-
-    if review.action_type == 'appeal':
-        if data.get('case_title'):
-            case.case_title = data['case_title']
-        if data.get('case_type'):
-            case.case_type = data['case_type']
-        if data.get('appeal_stage'):
-            case.appeal_stage = data['appeal_stage']
-        if data.get('officer'):
-            case.officer = data['officer']
-        if data.get('din_number'):
-            case.din_number = data['din_number']
-        if data.get('notice_date'):
-            case.notice_date = data['notice_date']
-        if data.get('due_date'):
-            case.due_date = data['due_date']
-        if data.get('ph_date'):
-            case.ph_date = data['ph_date']
-        if data.get('next_hearing_date'):
-            case.next_hearing_date = data['next_hearing_date']
-
-        old_status = case.status
-        case.status = 'open'
-        case.submitted_to_court = True
-        case.save()
-
-        CourtCaseStatusLog.objects.create(
-            case=case,
-            event_type='appeal',
-            old_status=old_status,
-            new_status='open',
-            note=data.get('note', ''),
-            case_type=case.case_type,
-            appeal_stage=case.appeal_stage,
-            next_hearing_date=case.next_hearing_date,
-            officer=case.officer,
-            din_number=case.din_number,
-            notice_date=case.notice_date,
-            due_date=case.due_date,
-            ph_date=case.ph_date,
-            changed_by=user,
-        )
-
-
     if review.action_type == 'notice_edit':
         from .models import CaseNotice
         data = review.payload or {}
@@ -1021,52 +725,9 @@ def _apply_review_action(review):
             old_values={k: old_values.get(k) for k in changed_fields},
             new_values={k: new_values.get(k) for k in changed_fields},
         )
-        _update_notice_status_from_workflow(notice)
+        #_update_notice_status_from_workflow(notice)
         return
 
-    if review.action_type == 'adjournment':
-        old_hearing = case.next_hearing_date
-        old_status = case.status
-
-        reason = data.get('reason')
-        new_date = data.get('next_hearing_date')
-        comment = data.get('comment', '')
-        postpone_type = data.get('postpone_type', 'adjournment')
-
-        case.adjourned_date = old_hearing
-        case.next_hearing_date = new_date
-        case.adjournment_reason = reason
-        if data.get('case_number'):
-            case.case_number = data['case_number']
-        if data.get('court_name'):
-            case.court_name = data['court_name']
-        case.status = 'open'
-        case.save()
-
-        type_label = {
-            'adjournment': 'Adjourned',
-            'extension':   'Deadline Extended',
-            'transfer':    'Transferred to Different Court',
-        }.get(postpone_type, 'Postponed')
-
-        CourtCaseStatusLog.objects.create(
-            case=case, event_type='adjournment',
-            old_status=old_status, new_status='open',
-            note=f"[{type_label}] {comment}",
-            adjournment_reason=reason,
-            adjourned_date=old_hearing,
-            next_hearing_date=new_date,
-            case_number=case.case_number,
-            court_name=case.court_name,
-            changed_by=user,
-        )
-        log_event(
-            client_id=case.client_id, litigation_type=case.litigation_type,
-            court_case=case, event_type='activity_update',
-            title=f'Hearing {type_label.lower()} (approved)',
-            description=comment[:200], user=user,
-        )
-        return
 
 
 def _update_notice_status_from_workflow(notice):
@@ -1171,6 +832,32 @@ class ReviewRequestViewSet(viewsets.ReadOnlyModelViewSet):
             Q(court_case__litigation_type='income-tax', court_case__job_id__in=it_job_ids)
         ).distinct()
 
+    # @action(detail=True, methods=['post'], url_path='approve')
+    # def approve(self, request, pk=None):
+    #     review = self.get_object()
+    #     user = request.user
+
+    #     if review.status not in ('pending', 'escalated'):
+    #         return Response({'error': f'Cannot approve a review with status "{review.status}".'}, status=400)
+
+    #     case = review.court_case
+    #     if review.status == 'escalated':
+    #         if not is_high_admin(user):
+    #             return Response({'error': 'Only Admin/Founder can approve escalated reviews.'}, status=403)
+    #     else:
+    #         if not (is_admin_role(user) or is_case_checker(case, user)):
+    #             return Response({'error': 'Only assigned Checker or Admin/Founder/Manager can approve.'}, status=403)
+
+    #     _apply_review_action(review)
+
+    #     review.status = 'approved'
+    #     review.reviewed_by = user
+    #     review.reviewed_at = timezone.now()
+    #     review.save(update_fields=['status', 'reviewed_by', 'reviewed_at'])
+
+    #     return Response(ReviewRequestSerializer(review, context={'request': request}).data)
+
+
     @action(detail=True, methods=['post'], url_path='approve')
     def approve(self, request, pk=None):
         review = self.get_object()
@@ -1187,12 +874,24 @@ class ReviewRequestViewSet(viewsets.ReadOnlyModelViewSet):
             if not (is_admin_role(user) or is_case_checker(case, user)):
                 return Response({'error': 'Only assigned Checker or Admin/Founder/Manager can approve.'}, status=403)
 
+        # 1) Apply payload (fields only)
         _apply_review_action(review)
 
+        # 2) Mark approved FIRST
         review.status = 'approved'
         review.reviewed_by = user
         review.reviewed_at = timezone.now()
         review.save(update_fields=['status', 'reviewed_by', 'reviewed_at'])
+
+        # 3) THEN recompute notice status (pending edit no longer exists)
+        if review.action_type == 'notice_edit':
+            notice_id = (review.payload or {}).get('notice_id')
+            if notice_id:
+                try:
+                    notice = CaseNotice.objects.get(id=notice_id)
+                    _update_notice_status_from_workflow(notice)
+                except CaseNotice.DoesNotExist:
+                    pass
 
         return Response(ReviewRequestSerializer(review, context={'request': request}).data)
 
@@ -1619,6 +1318,7 @@ class CaseNoticeViewSet(viewsets.ModelViewSet):
             'section': notice.section,
             'notice_date': str(notice.notice_date) if notice.notice_date else None,
             'due_date': str(notice.due_date) if notice.due_date else None,
+            'extended_due_date': str(notice.extended_due_date) if notice.extended_due_date else None,
             'ph_date': str(notice.ph_date) if notice.ph_date else None,
             'notes': notice.notes,
         }
@@ -1630,6 +1330,7 @@ class CaseNoticeViewSet(viewsets.ModelViewSet):
             'section': request.data.get('section'),
             'notice_date': request.data.get('notice_date'),
             'due_date': request.data.get('due_date'),
+            'extended_due_date': request.data.get('extended_due_date'),
             'ph_date': request.data.get('ph_date'),
             'notes': request.data.get('notes'),
         }
@@ -1787,163 +1488,7 @@ class NoticeDocumentViewSet(viewsets.ModelViewSet):
         if doc_type == 'acknowledgment':
             _update_notice_status_from_workflow(instance.notice)
 
-    # def perform_destroy(self, instance):
-    #     from rest_framework.exceptions import PermissionDenied
-    #     user = self.request.user
-    #     notice = instance.notice
-    #     court_case = notice.court_case
-        
-    #     # ✅ Delete rules:
-    #     # - Court Notice: ONLY assigned Maker can delete
-    #     # - Acknowledgment (rejected, own): Maker can delete (to re-upload)
-    #     # - Approved Reply: NO ONE can delete (permanent record)
-    #     # - Approved Acknowledgment: NO ONE can delete (permanent record)
-    #     # - Pending/escalated ack/reply: Not deletable (goes through review workflow)
-        
-    #     is_court_notice = instance.doc_type == 'court_notice'
-    #     is_maker = is_case_maker(court_case, user)
-        
-    #     # Court Notice → only Maker can delete
-    #     if is_court_notice:
-    #         if not is_maker:
-    #             raise PermissionDenied('Only the assigned Maker can delete the Court Notice.')
-        
-    #     # Rejected acknowledgment (own) → Maker can delete for re-upload
-    #     elif (
-    #         instance.doc_type == 'acknowledgment'
-    #         and instance.review_status == 'rejected'
-    #         and instance.uploaded_by == user
-    #     ):
-    #         pass  # Allow
-        
-    #     # Everything else → BLOCKED (approved replies, approved acks, pending files)
-    #     else:
-    #         raise PermissionDenied('This document cannot be deleted.')
-        
-    #     log_event(
-    #         client_id=court_case.client_id,
-    #         litigation_type=court_case.litigation_type,
-    #         court_case=court_case,
-    #         job_id=court_case.job_id,
-    #         event_type='notice_doc_deleted',
-    #         title=f'Document deleted — {instance.file_name} ({instance.doc_type})',
-    #         user=user,
-    #         old_values={
-    #             'file_name': instance.file_name,
-    #             'doc_type': instance.doc_type,
-    #         },
-    #     )
-        
-    #     # ✅ Delete physical file from media folder
-    #     if instance.file:
-    #         try:
-    #             instance.file.delete(save=False)
-    #         except Exception:
-    #             pass
-        
-    #     instance.delete()
-
-
-
-    # @action(detail=True, methods=['post'], url_path='approve')
-    # def approve(self, request, pk=None):
-    #     doc = self.get_object()
-    #     user = request.user
-
-    #     if not (is_case_checker(doc.notice.court_case, user) or is_high_admin(user)):
-    #         return Response({'error': 'Only Checker or Founder can approve.'}, status=403)
-
-    #     if doc.review_status not in ('pending', 'escalated'):
-    #         return Response({'error': 'Cannot approve this document.'}, status=400)
-
-    #     # Store original doc_type before changing
-    #     original_doc_type = doc.doc_type
-    #     doc.review_status = 'approved'
-    #     doc.reviewed_by = user
-    #     doc.reviewed_at = timezone.now()
-
-    #     # If it's a "pending" reply doc (old flow), promote to reply
-    #     if doc.doc_type == 'pending':
-    #         doc.doc_type = 'reply'
-
-    #     doc.save()
-
-    #     notice = doc.notice
-    #     _update_notice_status_from_workflow(notice)
-
-
-    #     # ✅ Log approval — clear title per doc type
-    #     doc_type_labels = {
-    #         'acknowledgment': 'Acknowledgment approved',
-    #         'reply': 'Reply document approved',
-    #         'pending': 'Document approved',
-    #     }
-    #     title_prefix = doc_type_labels.get(original_doc_type, 'Document approved')
-
-    #     log_event(
-    #         client_id=notice.court_case.client_id,
-    #         litigation_type=notice.court_case.litigation_type,
-    #         court_case=notice.court_case,
-    #         job_id=notice.court_case.job_id,
-    #         event_type='doc_upload',
-    #         title=f'{title_prefix} — {doc.file_name}',
-    #         user=user,
-    #         new_values={
-    #             'file_name': doc.file_name,
-    #             'notice_din': notice.din_number,
-    #         },
-    #     )
-    #     return Response(NoticeDocumentSerializer(doc, context={'request': request}).data)
-
-
-    # @action(detail=True, methods=['post'], url_path='reject')
-    # def reject(self, request, pk=None):
-    #     doc = self.get_object()
-    #     user = request.user
-    #     reason = (request.data.get('reason') or '').strip()
-
-    #     if not (is_case_checker(doc.notice.court_case, user) or is_high_admin(user)):
-    #         return Response({'error': 'Only Checker or Founder can reject.'}, status=403)
-
-    #     if not reason:
-    #         return Response({'error': 'Rejection reason is required.'}, status=400)
-
-    #     if doc.review_status not in ('pending', 'escalated'):
-    #         return Response({'error': 'Cannot reject this document.'}, status=400)
-
-    #     original_doc_type = doc.doc_type
-    #     doc.review_status = 'rejected'
-    #     doc.reviewed_by = user
-    #     doc.reviewed_at = timezone.now()
-    #     doc.review_note = reason
-    #     doc.save()
-
-    #     notice = doc.notice
-    #     _update_notice_status_from_workflow(notice)
-
-    #     # ✅ Log rejection — clear title per doc type
-    #     doc_type_labels = {
-    #         'acknowledgment': 'Acknowledgment rejected',
-    #         'reply': 'Reply document rejected',
-    #         'pending': 'Document rejected',
-    #     }
-    #     title_prefix = doc_type_labels.get(original_doc_type, 'Document rejected')
-
-    #     log_event(
-    #         client_id=notice.court_case.client_id,
-    #         litigation_type=notice.court_case.litigation_type,
-    #         court_case=notice.court_case,
-    #         job_id=notice.court_case.job_id,
-    #         event_type='doc_delete',  # use doc_delete style (red) for rejections
-    #         title=f'{title_prefix} — {doc.file_name}',
-    #         user=user,
-    #         new_values={
-    #             'file_name': doc.file_name,
-    #             'rejection_reason': reason,
-    #             'notice_din': notice.din_number,
-    #         },
-    #     )
-    #     return Response(NoticeDocumentSerializer(doc, context={'request': request}).data)
+    
 
     def perform_destroy(self, instance):
         from rest_framework.exceptions import PermissionDenied
@@ -1969,7 +1514,7 @@ class NoticeDocumentViewSet(viewsets.ModelViewSet):
             if instance.doc_type == 'pending':
                 NoticeDocument.objects.filter(
                     notice=notice,
-                    reply_version=instance.reply_version,
+                    reply_version=instance.id,
                     doc_type='pending_support'
                 ).delete()
             pass  # Allow deletion
@@ -2019,7 +1564,7 @@ class NoticeDocumentViewSet(viewsets.ModelViewSet):
             doc.doc_type = 'reply'
             NoticeDocument.objects.filter(
                 notice=doc.notice, 
-                reply_version=doc.reply_version, 
+                reply_version=doc.id, 
                 doc_type='pending_support'
             ).update(
                 doc_type='supporting_doc',
@@ -2074,7 +1619,7 @@ class NoticeDocumentViewSet(viewsets.ModelViewSet):
         if original_doc_type == 'pending':
             NoticeDocument.objects.filter(
                 notice=doc.notice, 
-                reply_version=doc.reply_version, 
+                reply_version=doc.id, 
                 doc_type='pending_support'
             ).update(
                 review_status='rejected',

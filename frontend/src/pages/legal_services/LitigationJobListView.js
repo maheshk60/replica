@@ -772,10 +772,8 @@ export default function LitigationJobListView({
         </Select>
 
         <Select
-          showSearch
           value={subServiceFilter}
           onChange={(val) => setSubServiceFilter(val)}
-          optionFilterProp="children"
           style={{ minWidth: 200 }}
           size="middle"
         >

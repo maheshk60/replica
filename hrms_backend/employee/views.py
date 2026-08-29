@@ -140,7 +140,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
     def users(self, request):
         """Returns all active users for dropdowns"""
         role = (request.user.role or "").lower()
-        if role not in ["admin", "founder"]:
+        if role not in ["admin", "founder","manager", "team lead"]:
             return Response({"error": "Not authorized"}, status=403)
         users = User.objects.filter(is_active=True).order_by("first_name")
         data = [

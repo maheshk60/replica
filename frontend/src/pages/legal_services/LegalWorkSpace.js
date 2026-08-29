@@ -13,53 +13,6 @@ import ReviewTabV2 from './ReviewTabV2';
 // ══════════════════════════════════════════════════════════════════════
 
 
-const documentCategoryApi = {
-  list: (clientId) =>
-    api.get('/legal-services/document-categories/', { params: { client: clientId } }),
-
-  create: (clientId, label, ctx = {}) =>
-    api.post('/legal-services/document-categories/', { client: clientId, label }, {
-      headers: {
-        'X-Litigation-Type': ctx.litigationType || '',
-        'X-Court-Case-Id': ctx.courtCaseId ? String(ctx.courtCaseId) : '',
-        'X-Job-Id': ctx.jobId ? String(ctx.jobId) : '',
-      },
-    }),
-
-  delete: (id, ctx = {}) =>
-    api.delete(`/legal-services/document-categories/${id}/`, {
-      headers: {
-        'X-Litigation-Type': ctx.litigationType || '',
-        'X-Court-Case-Id': ctx.courtCaseId ? String(ctx.courtCaseId) : '',
-        'X-Job-Id': ctx.jobId ? String(ctx.jobId) : '',
-      },
-    }),
-};
-
-const customDocumentApi = {
-  upload: (categoryId, file, ctx = {}) => {
-    const formData = new FormData();
-    formData.append('category', categoryId);
-    formData.append('file', file);
-    return api.post('/legal-services/custom-documents/', formData, {
-      headers: {
-        'X-Litigation-Type': ctx.litigationType || '',
-        'X-Court-Case-Id': ctx.courtCaseId ? String(ctx.courtCaseId) : '',
-        'X-Job-Id': ctx.jobId ? String(ctx.jobId) : '',
-      },
-    });
-  },
-  delete: (id, ctx = {}) =>
-    api.delete(`/legal-services/custom-documents/${id}/`, {
-      headers: {
-        'X-Litigation-Type': ctx.litigationType || '',
-        'X-Court-Case-Id': ctx.courtCaseId ? String(ctx.courtCaseId) : '',
-        'X-Job-Id': ctx.jobId ? String(ctx.jobId) : '',
-      },
-    }),
-};
-
-
 const courtCaseApi = {
   list: (clientId, litigationType,jobId) =>
     api.get('/legal-services/court-cases/', { params: { client: clientId, litigation_type: litigationType, job_id: jobId } }),
@@ -72,18 +25,7 @@ const courtCaseApi = {
   setDescription: (id, description) => api.post(`/legal-services/court-cases/${id}/set-description/`, { description }),
   addStep: (id, note) => api.post(`/legal-services/court-cases/${id}/add-step/`, { note }),
 
-  // // Appeal (WIP → OPEN)
-  // submitAppeal: (id, payload) => api.post(`/legal-services/court-cases/${id}/submit-appeal/`, payload),
-
-  // // Future actions (already wired)
-  // logAdjournment: (id, payload) => api.post(`/legal-services/court-cases/${id}/log-adjournment/`, payload),
-  // logOutcome: (id, payload) => api.post(`/legal-services/court-cases/${id}/log-outcome/`, payload),
-
-  // // Legacy (kept for compatibility)
-  // submitToCourt: (id) => api.post(`/legal-services/court-cases/${id}/submit-to-court/`),
-  // recordCourtResponse: (id, body) => api.post(`/legal-services/court-cases/${id}/court-response/`, body),
-  // logHearingOutcome: (id, body) => api.post(`/legal-services/court-cases/${id}/log-hearing-outcome/`, body),
-  // fileAppeal: (id, payload) => api.post(`/legal-services/court-cases/${id}/submit-appeal/`, payload),
+  
 };
 
 const reviewApi = {
@@ -134,11 +76,11 @@ const GLOBAL_CSS = `
 // ── CONSTANTS ──
 const FIELD_LABELS = [
   ['email', 'Email'], ['phone', 'Phone'], ['contact_person', 'Contact Person'],
-  ['nature_of_business', 'Nature of Business'], ['constitution_display', 'Constitution'],
-  ['gstin', 'GSTIN'], ['pan', 'PAN'], ['tan', 'TAN'], ['cin', 'CIN'],
-  ['iec', 'IEC'], ['lei', 'LEI'], ['ksea', 'KSEA'], ['udyam', 'UDYAM'],
-  ['apt', 'APT'], ['ept', 'EPT'], ['address', 'Address'],
-  //['group_name', 'Client Group'], ['primary_spoc_name', 'Primary SPOC'],
+  ['nature_of_business', 'Nature of Business'], ['constitution_display', 'Constitution'],['group_name', 'Client Group'],['address', 'Address'],
+  // ['gstin', 'GSTIN'], ['pan', 'PAN'], ['tan', 'TAN'], ['cin', 'CIN'],
+  // ['iec', 'IEC'], ['lei', 'LEI'], ['ksea', 'KSEA'], ['udyam', 'UDYAM'],
+  // ['apt', 'APT'], ['ept', 'EPT'], 
+  // ['primary_spoc_name', 'Primary SPOC'],
 ];
 
 const ADMIN_ROLES = ['Admin', 'Founder'];
@@ -342,7 +284,6 @@ const S = {
   filterSelect: { border: '1px solid #e5e7eb', borderRadius: 9, padding: '9px 12px', fontSize: 13, color: '#374151', background: '#fff', cursor: 'pointer', minWidth: 160 },
   viewControls: { display: 'flex', alignItems: 'center', gap: 6, padding: 4, background: '#f5f6fb', borderRadius: 8 },
   viewBtn: (active) => ({ width: 32, height: 32, border: 'none', background: active ? '#fff' : 'transparent', borderRadius: 6, cursor: 'pointer', color: active ? '#16273f' : '#6b7280', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: active ? '0 1px 3px rgba(20,20,40,0.04)' : 'none' }),
-  uploadError: { padding: '12px 14px', border: '1px solid #fecaca', borderRadius: 8, background: '#fef2f2', color: '#dc2626', fontSize: 12.5, fontWeight: 600, textAlign: 'center' },
 
   categoriesGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 14, alignItems: 'start' },
   categoryCard: { background: '#fff', border: '1px solid #eef0f5', borderRadius: 12, padding: 14, display: 'flex', flexDirection: 'column', minHeight: 220, boxShadow: '0 1px 3px rgba(20,20,40,0.03)', transition: 'all 0.15s ease' },
@@ -686,21 +627,13 @@ export default function LegalWorkSpace() {
     // eslint-disable-next-line
   }, [activeTab]);
 
-  const [labels, setLabels] = useState([]);
-  const [docsLoading, setDocsLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState(null);
   const [showMCModal, setShowMCModal] = useState(false);
   const [docViewMode, setDocViewMode] = useState('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [teamLoading, setTeamLoading] = useState(false);
 
-  const [addDocOpen, setAddDocOpen] = useState(false);
-  const [customDocName, setCustomDocName] = useState('');
-  const [customFile, setCustomFile] = useState(null);
 
-  const [expandedLabels, setExpandedLabels] = useState({});
   const [deleteModal, setDeleteModal] = useState({ open: false, type: '', id: null });
 
   const [constitutions, setConstitutions] = useState([]);
@@ -776,7 +709,7 @@ export default function LegalWorkSpace() {
       })
       .catch(() => setCaseData(null))
       .finally(() => setTeamLoading(false));
-  }, [clientId, litigationEndpoint, caseId]);   // ✅ ADDED caseId dependency
+  }, [clientId, litigationEndpoint, caseId]);   
 
   const [combinedMakerIds, setCombinedMakerIds] = useState([]);
   useEffect(() => {
@@ -801,116 +734,126 @@ export default function LegalWorkSpace() {
   const [activityError, setActivityError] = useState(null);
   const [creatingCase, setCreatingCase] = useState(false);
 
+  const [noticeHtmlReplies, setNoticeHtmlReplies] = useState({});
+  const [noticeDocsMap, setNoticeDocsMap] = useState({});
 
-  const loadLabels = () => {
-    if (!caseData?.id) {
-      setLabels([]);
-      setDocsLoading(false);
+  useEffect(() => {
+    if (!activityCase?.notices?.length) {
+      setNoticeHtmlReplies({});
+      setNoticeDocsMap({});
       return;
     }
 
-    setDocsLoading(true);
-    api.get('/legal-services/document-categories/', {
-      params: {
-        client: clientId,
-        job_id: caseData.id,
-        litigation_type: activityLitigationType,
-      },
-    })
-      .then((res) => {
-        const data = res.data.results || res.data || [];
-        setLabels(data);
-        setExpandedLabels(prev => {
-          const newState = { ...prev };
-          data.forEach(label => { if (!(label.id in newState)) newState[label.id] = false; });
-          return newState;
-        });
-      })
-      .catch(() => setUploadError('Failed to load documents.'))
-      .finally(() => setDocsLoading(false));
-  };
+    let cancelled = false;
 
-  useEffect(() => {
-    if (clientId && caseData?.id) {
-      loadLabels();
-    } else {
-      setLabels([]);
-      setDocsLoading(false);
-    }
-    // eslint-disable-next-line
-  }, [clientId, caseData?.id]);
+    Promise.all(
+      activityCase.notices.map((n) =>
+        Promise.all([
+          api.get(`/legal-services/notices/${n.id}/`)
+            .then((res) => res.data)
+            .catch(() => null),
+          api.get('/legal-services/notice-replies/', { params: { notice: n.id } })
+            .then((res) => {
+              const list = Array.isArray(res.data) ? res.data : (res.data.results || []);
+              return list;
+            })
+            .catch(() => []),
+        ]).then(([noticeDetail, htmlReplies]) => ({
+          noticeId: n.id,
+          documents: noticeDetail?.documents || [],
+          htmlReplies: htmlReplies.filter((r) => r.status === 'approved'),
+        }))
+      )
+    ).then((results) => {
+      if (cancelled) return;
+      const htmlMap = {};
+      const docsMap = {};
+      results.forEach(({ noticeId, documents, htmlReplies }) => {
+        htmlMap[noticeId] = htmlReplies;
+        docsMap[noticeId] = documents;
+      });
+      setNoticeHtmlReplies(htmlMap);
+      setNoticeDocsMap(docsMap);
+    });
 
+    return () => { cancelled = true; };
+  }, [activityCase?.id, activityCase?.notices, refreshTick]);   
 
-  const toggleLabel = (labelId) => setExpandedLabels(prev => ({ ...prev, [labelId]: !prev[labelId] }));
-
-  const handleCustomDocSubmit = async () => {
-    if (!customDocName.trim()) { setUploadError('Please provide a Label name'); return; }
-    setUploading(true);
-    setUploadError(null);
-    const ctx = { litigationType: activityLitigationType, courtCaseId: activityCase?.id, jobId: caseData?.id };
-    try {
-      const labelRes = await documentCategoryApi.create(clientId, customDocName.trim(), ctx);
-      const newLabel = labelRes.data;
-      if (customFile) await customDocumentApi.upload(newLabel.id, customFile, ctx);
-      setCustomDocName('');
-      setCustomFile(null);
-      if (fileInputRefs.current['add-custom-file']) {
-        fileInputRefs.current['add-custom-file'].value = '';
-      }
-      await loadLabels();
-      bumpRefresh();
-    } catch { setUploadError('Failed to create Label. Please try again.'); }
-    finally { setUploading(false); }
-  };
-
-  const handleLabelUpload = async (file, labelId) => {
-    if (!file) return;
-    setUploading(true);
-    setUploadError(null);
-    const ctx = { litigationType: activityLitigationType, courtCaseId: activityCase?.id, jobId: caseData?.id };
-    try {
-      await customDocumentApi.upload(labelId, file, ctx);
-      await loadLabels();
-      bumpRefresh();
-    }
-    catch { setUploadError('Failed to upload document.'); }
-    finally { setUploading(false); }
-  };
 
   const openDeleteModal = (type, id) => setDeleteModal({ open: true, type, id });
 
-  const handleView = (doc) => window.open(doc.file_url, '_blank', 'noopener,noreferrer');
-  
+  const handleView = (doc) => {
+    const url = doc.file_url || doc.file;
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   const handleDownload = async (doc) => {
+    const url = doc.file_url;
+    if (!url) return;
     try {
-      const response = await fetch(doc.file_url);
+      const response = await fetch(url);
       const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
+      const objectUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.href = url;
-      link.download = doc.document_name || 'download';
+      link.href = objectUrl;
+      link.download = doc.file_name || doc.document_name || 'download';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      window.URL.revokeObjectURL(objectUrl);
     } catch (err) {
       console.error('Download failed:', err);
     }
   };
 
+  const handleOpenHtmlReply = (reply) => {
+    const title = (reply.title || 'Reply').replace(/</g, '&lt;');
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title>
+      <style>body{font-family:'Times New Roman',serif;font-size:12pt;max-width:800px;margin:40px auto;padding:20px;line-height:1.5}
+      table{border-collapse:collapse;width:100%}td,th{border:1px solid #999;padding:6px 10px}</style></head>
+      <body>${reply.content_html || ''}</body></html>`;
+    window.open(URL.createObjectURL(new Blob([html], { type: 'text/html' })), '_blank');
+  };
+
+  const handleDownloadHtmlReply = async (reply) => {
+    const content = reply.content_html || '';
+    if (!content.trim()) return;
+    try {
+      const { default: html2pdf } = await import('html2pdf.js');
+      const wrapper = document.createElement('div');
+      wrapper.style.cssText = "font-family:'Times New Roman',serif;font-size:12pt;line-height:1.5;padding:20px;background:#fff;width:700px";
+      wrapper.innerHTML = content;
+      document.body.appendChild(wrapper);
+      await html2pdf()
+        .set({
+          margin: [0.8, 0.8, 0.8, 0.8],
+          filename: `${(reply.title || 'reply').replace(/[^a-z0-9]/gi, '_')}.pdf`,
+          image: { type: 'jpeg', quality: 0.98 },
+          html2canvas: { scale: 2, useCORS: true },
+          jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' },
+        })
+        .from(wrapper)
+        .save();
+      document.body.removeChild(wrapper);
+    } catch (e) {
+      console.error(e);
+      alert('PDF download failed');
+    }
+  };
+
+
+
   const handleMCAssigned = (updatedCase) => { setCaseData(updatedCase); setShowMCModal(false); };
 
   const { fy, ay } = getFYandAY();
-  const labelFilters = ['all', ...labels.map((lbl) => lbl.label)];
-  const visibleLabels = labels.filter((lbl) => statusFilter === 'all' || lbl.label === statusFilter);
 
   const [pendingReview, setPendingReview] = useState(null);
-  const [activeReviewCount, setActiveReviewCount] = useState(0); // ✅ ADDED
+  const [activeReviewCount, setActiveReviewCount] = useState(0); 
 
   const loadPendingReview = () => {
     if (!activityCase?.id) { 
       setPendingReview(null); 
-      setActiveReviewCount(0); // ✅ ADDED
+      setActiveReviewCount(0); 
       return; 
     }
     reviewApi.list({ court_case: activityCase.id })
@@ -920,11 +863,11 @@ export default function LegalWorkSpace() {
           .filter((r) => r.status === 'pending' || r.status === 'escalated')
           .sort((a, b) => new Date(b.submitted_at) - new Date(a.submitted_at));
         setPendingReview(active[0] || null);
-        setActiveReviewCount(active.length); // ✅ ADDED: Stores the exact number of pending reviews
+        setActiveReviewCount(active.length); 
       })
       .catch(() => {
         setPendingReview(null);
-        setActiveReviewCount(0); // ✅ ADDED
+        setActiveReviewCount(0); 
       });
   };
 
@@ -933,33 +876,6 @@ export default function LegalWorkSpace() {
     // eslint-disable-next-line
   }, [activityCase?.id, refreshTick]);
 
-  
-  // const loadActivityCase = () => {
-  //   if (!caseData?.id) {
-  //     setActivityCase(null);
-  //     return;
-  //   }
-
-  //   setActivityLoading(true);
-  //   setActivityError(null);
-
-  //   courtCaseApi.list(clientId, activityLitigationType, caseData.id)
-  //     .then((res) => {
-  //       const data = Array.isArray(res.data) ? res.data : (res.data.results || []);
-  //       // Backend already filters by job_id, so there should be at most one match
-  //       const matchingCase = data.find((cc) =>
-  //         cc.litigation_type === activityLitigationType &&
-  //         cc.job_id === caseData.id
-  //       );
-  //       if (matchingCase) {
-  //         setActivityCase(matchingCase);
-  //       } else {
-  //         setActivityCase(null);
-  //       }
-  //     })
-  //     .catch(() => setActivityError('Failed to load case.'))
-  //     .finally(() => setActivityLoading(false));
-  // };
 
   const loadActivityCase = () => {
     if (!caseData?.id) {
@@ -1081,20 +997,19 @@ export default function LegalWorkSpace() {
 
   const executeDelete = async () => {
     const { type, id } = deleteModal;
-    const ctx = { litigationType: activityLitigationType, courtCaseId: activityCase?.id, jobId: caseData?.id };
     try {
-      if (type === 'case') { await courtCaseApi.delete(id); setActivityCase(null); }
-      else if (type === 'label') { await documentCategoryApi.delete(id, ctx); await loadLabels(); }
-      else if (type === 'doc') { await customDocumentApi.delete(id, ctx); await loadLabels(); }
+      if (type === 'case') {
+        await courtCaseApi.delete(id);
+        setActivityCase(null);
+      }
+      // label / doc deletes removed — files live on notices; delete only in Activity
       bumpRefresh();
     } catch (err) {
-      console.error("Delete failed", err);
-      setUploadError('Failed to delete item.');
-    } finally { setDeleteModal({ open: false, type: '', id: null }); }
+      console.error('Delete failed', err);
+    } finally {
+      setDeleteModal({ open: false, type: '', id: null });
+    }
   };
-
-  const handleDeleteLabel = (id) => openDeleteModal('label', id);
-  const handleDeleteDoc = (id) => openDeleteModal('doc', id);
 
   if (isInvalidClient) {
     return (
@@ -1320,7 +1235,7 @@ export default function LegalWorkSpace() {
 
               {/* ── 2. Info Banner ── */}
               <div style={{ background: '#EEF3FC', borderLeft: '3px solid #1A2F5A', borderRadius: '0 8px 8px 0', padding: '10px 14px', fontSize: 12, color: '#1A2F5A', marginBottom: 16, fontWeight: 500 }}>
-                ℹ️ {canEditClientInfo ? 'Auto-filled from client master. Edit to update.' : 'Read-only mode. Assign a Maker to enable editing.'}
+                ℹ️ {canEditClientInfo ? 'Auto-filled from client master. Edit to update.' : 'Read-only, Assigned Maker can only editing.'}
               </div>
 
               {/* ── 3. Client Information Card ── */}
@@ -1382,288 +1297,504 @@ export default function LegalWorkSpace() {
             </div>
           )}
 
-          {/* DOCUMENTS TAB */}
           {activeTab === 'documents' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {/* ── Search + Disclaimer Row ── */}
               <div style={{
-                background: '#fff', border: '1px solid #eef0f5', borderRadius: 12,
-                padding: '14px 16px',
-                boxShadow: '0 1px 3px rgba(20,20,40,0.03)',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                gap: 12, flexWrap: 'wrap',
               }}>
-                {labels.length > 0 && (() => {
-                  const totalDocs = labels.reduce((sum, l) => sum + (l.documents || []).length, 0);
-                  return (
-                    <div style={{ marginBottom: 14 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>Documents Overview</span>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: '#6b7280' }}>
-                          {totalDocs} file{totalDocs !== 1 ? 's' : ''} across {labels.length} label{labels.length !== 1 ? 's' : ''}
-                        </span>
-                      </div>
-                      <div style={{ height: 5, background: '#e9edf4', borderRadius: 99, overflow: 'hidden' }}>
-                        <div style={{
-                          height: '100%',
-                          width: totalDocs > 0 ? '100%' : '0%',
-                          background: 'linear-gradient(90deg, #214274, #205995)',
-                          borderRadius: 99, transition: 'width 0.3s ease',
-                        }} />
-                      </div>
-                    </div>
-                  );
-                })()}
+                <div style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  fontSize: 11.5, color: '#64748b', fontStyle: 'italic',
+                }}>
+                  <span style={{ fontSize: 13 }}>ℹ️</span>
+                  <span>View-only — showing all approved files uploaded across notices</span>
+                </div>
 
-                <div style={{ position: 'relative' }}>
-                  <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 13, color: '#94a3b8', pointerEvents: 'none' }}>🔍</span>
+                <div style={{ position: 'relative', width: 300 }}>
+                  <span style={{
+                    position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
+                    fontSize: 12, color: '#94a3b8', pointerEvents: 'none',
+                  }}>🔍</span>
                   <input
-                    type="text" placeholder="Search documents…"
-                    value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                    type="text"
+                    placeholder="Search by file name or DIN..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
                     className="cdv-input-focus"
                     style={{
                       width: '100%', boxSizing: 'border-box',
-                      padding: '9px 36px 9px 34px',
+                      padding: '8px 30px 8px 32px',
                       border: '1px solid #eef0f5', borderRadius: 8,
-                      fontSize: 13, background: '#fff', fontFamily: 'inherit', outline: 'none',
+                      fontSize: 12.5, background: '#fff', fontFamily: 'inherit', outline: 'none',
                     }}
                   />
                   {searchQuery && (
-                    <button onClick={() => setSearchQuery('')}
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
                       style={{
-                        position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
-                        border: 'none', background: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: 14, padding: 0,
-                      }}>✕</button>
+                        position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                        border: 'none', background: 'none', color: '#94a3b8', cursor: 'pointer',
+                        fontSize: 14, padding: 0,
+                      }}
+                    >✕</button>
                   )}
                 </div>
               </div>
 
-              {uploadError && <div style={S.uploadError}>{uploadError}</div>}
-              {docsLoading && <div style={S.state}>Loading documents...</div>}
+              {activityLoading && <div style={S.state}>Loading documents...</div>}
 
-              {!docsLoading && (() => {
+              {!activityLoading && !activityCase && (
+                <div style={S.empty}>
+                  <div style={S.emptyIcon}>📁</div>
+                  <p>No documents found. Add a case and notices in the Activity tab first.</p>
+                </div>
+              )}
+
+              {!activityLoading && activityCase && (() => {
                 const q = searchQuery.trim().toLowerCase();
-                const filteredLabels = labels.filter((lbl) =>
-                  !q || lbl.label.toLowerCase().includes(q) ||
-                  (lbl.documents || []).some((d) => d.document_name.toLowerCase().includes(q))
-                );
-                const noResults = q && filteredLabels.length === 0;
 
-                if (noResults) {
+                // ── Build normalized notice rows (APPROVED ONLY) ──
+                const noticeRows = (activityCase.notices || []).map((notice) => {
+                  const docs = noticeDocsMap[notice.id] || notice.documents || [];
+
+                  // 1) Court notice (always visible if exists)
+                  const courtNotices = docs.filter((d) => d.doc_type === 'court_notice');
+
+                  // 2) APPROVED Uploaded replies only (from NoticeDocument table)
+                  const uploadedReplies = docs.filter(
+                    (d) => d.doc_type === 'reply' && d.review_status === 'approved'
+                  );
+
+                  // 3) APPROVED Supporting docs only
+                  const supports = docs.filter(
+                    (d) => d.doc_type === 'supporting_doc' && d.review_status === 'approved'
+                  );
+
+                  // 4) APPROVED Acknowledgments only
+                  const acks = docs.filter(
+                    (d) => d.doc_type === 'acknowledgment' && d.review_status === 'approved'
+                  );
+
+                  // 5) APPROVED HTML replies only (from NoticeReply table, prefetched into noticeHtmlReplies)
+                  const htmlReplies = noticeHtmlReplies[notice.id] || [];
+
+                  // ── Merge both reply sources chronologically → assign v1, v2, v3... ──
+                  const combined = [
+                    ...htmlReplies.map((r) => ({
+                      ...r,
+                      _isHtml: true,
+                      _id: r.id,                              // NoticeReply.id
+                      ts: new Date(r.reviewed_at || r.updated_at || r.created_at || 0).getTime(),
+                      displayName: `${r.title || 'Untitled'}.docx`,
+                    })),
+                    ...uploadedReplies.map((d) => ({
+                      ...d,
+                      _isHtml: false,
+                      _id: d.id,                              // NoticeDocument.id
+                      ts: new Date(d.reviewed_at || d.uploaded_at || 0).getTime(),
+                      displayName: d.file_name || 'file',
+                    })),
+                  ].sort((a, b) => a.ts - b.ts);
+
+                  // ── Group each reply with its own supporting docs ──
+                  // BOTH HTML replies and Uploaded replies can have supports.
+                  // Match via: support.reply_version === parent_reply._id
+                  const versionGroups = combined.map((item, i) => ({
+                    v: i + 1,
+                    main: item,
+                    supports: supports.filter(
+                      (s) => String(s.reply_version) === String(item._id)
+                    ),
+                  }));
+
+                  const totalFiles =
+                    courtNotices.length +
+                    combined.length +
+                    versionGroups.reduce((n, vg) => n + vg.supports.length, 0) +
+                    acks.length;
+
+                  return {
+                    id: notice.id,
+                    din: notice.din_number || 'N/A',
+                    courtNotices,
+                    versionGroups,
+                    acks,
+                    totalFiles,
+                  };
+                });
+
+                // ── Apply search filter ──
+                const filteredNotices = noticeRows
+                  .map((n) => {
+                    if (!q) return n;
+                    const matchDin = (n.din || '').toLowerCase().includes(q);
+
+                    const filteredCN = n.courtNotices.filter(
+                      (d) => (d.file_name || '').toLowerCase().includes(q) || matchDin
+                    );
+
+                    const filteredVG = n.versionGroups
+                      .map((vg) => {
+                        const name = (
+                          vg.main.displayName || vg.main.file_name || vg.main.title || ''
+                        ).toLowerCase();
+                        const hitMain = name.includes(q) || matchDin;
+                        const filteredSup = vg.supports.filter(
+                          (s) => (s.file_name || '').toLowerCase().includes(q) || matchDin
+                        );
+                        if (!hitMain && filteredSup.length === 0) return null;
+                        return { ...vg, supports: hitMain ? vg.supports : filteredSup };
+                      })
+                      .filter(Boolean);
+
+                    const filteredAck = n.acks.filter(
+                      (d) => (d.file_name || '').toLowerCase().includes(q) || matchDin
+                    );
+
+                    const totalVisible =
+                      filteredCN.length +
+                      filteredVG.reduce((c, vg) => c + 1 + vg.supports.length, 0) +
+                      filteredAck.length;
+
+                    if (totalVisible === 0) return null;
+                    return {
+                      ...n,
+                      courtNotices: filteredCN,
+                      versionGroups: filteredVG,
+                      acks: filteredAck,
+                      totalFiles: totalVisible,
+                    };
+                  })
+                  .filter(Boolean);
+
+                // ── Closure docs (only when bundle approved) ──
+                const closureDocs =
+                  activityCase.closure_review_status === 'approved'
+                    ? (activityCase.closure_documents || []).filter(
+                        (d) => !q || (d.file_name || '').toLowerCase().includes(q)
+                      )
+                    : [];
+
+                // ── Empty states ──
+                if (filteredNotices.length === 0 && closureDocs.length === 0) {
+                  if (q) {
+                    return (
+                      <div style={{
+                        textAlign: 'center', padding: '40px 20px', background: '#fff',
+                        borderRadius: 10, border: '1px solid #eef0f5',
+                      }}>
+                        <div style={{ fontSize: 32, marginBottom: 8, opacity: 0.6 }}>🔍</div>
+                        <div style={{ color: '#6b7280', fontSize: 13, fontWeight: 600 }}>
+                          No documents match &quot;{searchQuery}&quot;
+                        </div>
+                      </div>
+                    );
+                  }
                   return (
-                    <div style={{
-                      textAlign: 'center', padding: '40px 20px',
-                      background: '#fff', borderRadius: 12, border: '1px solid #eef0f5',
-                    }}>
-                      <div style={{ fontSize: 32, marginBottom: 8, opacity: 0.6 }}>🔍</div>
-                      <div style={{ color: '#6b7280', fontSize: 13, fontWeight: 600 }}>No documents match "{searchQuery}"</div>
+                    <div style={S.empty}>
+                      <div style={S.emptyIcon}>📁</div>
+                      <p>No approved files yet. Upload or write replies in the Activity tab.</p>
                     </div>
                   );
                 }
 
+                // ── Shared styles ──
+                const colBorder = '1px solid #EEF0F5';
+                const thStyle = {
+                  textAlign: 'left', padding: '10px 12px',
+                  fontWeight: 700, color: '#475569', fontSize: 10.5,
+                  textTransform: 'uppercase', letterSpacing: '.05em',
+                  borderBottom: '1px solid #E2E8F0',
+                  borderRight: colBorder,
+                  background: '#F8FAFC',
+                };
+                const tdStyle = {
+                  padding: '10px 12px', verticalAlign: 'top',
+                  borderRight: colBorder,
+                };
+
+                // ── Standardized file chip (fixed width, clean look) ──
+                const FileChip = ({ doc, icon, isHtml, label }) => {
+                  const name = label || doc.file_name || doc.displayName || 'file';
+                  return (
+                    <div
+                      onClick={() => (isHtml ? handleOpenHtmlReply(doc) : handleView(doc))}
+                      title={name}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 6,
+                        padding: '4px 8px', background: '#fff',
+                        border: '1px solid #E2E8F0', borderRadius: 5,
+                        cursor: 'pointer', width: 170, height: 26, boxSizing: 'border-box',
+                        transition: 'all .12s',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = '#F5F8FF';
+                        e.currentTarget.style.borderColor = '#c7d2fe';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = '#fff';
+                        e.currentTarget.style.borderColor = '#E2E8F0';
+                      }}
+                    >
+                      <span style={{ fontSize: 11, flexShrink: 0 }}>{icon}</span>
+                      <span style={{
+                        fontSize: 10, fontWeight: 600, color: '#1a1a2e',
+                        flex: 1, minWidth: 0,
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      }}>
+                        {name}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (isHtml) handleDownloadHtmlReply(doc);
+                          else handleDownload(doc);
+                        }}
+                        title="Download"
+                        style={{
+                          width: 16, height: 16, border: '1px solid #cbd5e1',
+                          borderRadius: 3, background: '#fff', color: '#475569',
+                          cursor: 'pointer', display: 'flex', alignItems: 'center',
+                          justifyContent: 'center', padding: 0, flexShrink: 0, fontSize: 9,
+                        }}
+                      >⬇</button>
+                    </div>
+                  );
+                };
+
+                // ── Compact version tag (inline, no expansion) ──
+                const VTag = ({ v }) => (
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    minWidth: 22, height: 20,
+                    fontSize: 9.5, fontWeight: 800, color: '#fff',
+                    background: '#3b82f6',
+                    padding: '0 6px', borderRadius: 3,
+                    flexShrink: 0,
+                  }}>
+                    v{v}
+                  </span>
+                );
+
+                const EmptyCell = ({ text }) => (
+                  <span style={{ fontSize: 11, color: '#c2c8d2', fontStyle: 'italic' }}>
+                    {text}
+                  </span>
+                );
+
                 return (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
-                    {filteredLabels.map((labelItem) => {
-                      const docs = (labelItem.documents || []).filter((d) =>
-                        !q || d.document_name.toLowerCase().includes(q) || labelItem.label.toLowerCase().includes(q)
-                      );
-                      const hasDocs = docs.length > 0;
-                      const borderColor = hasDocs ? '#8ECEBF' : '#e9edf4';
-                      const shadowStyle = hasDocs ? '0 0 0 2px #C3E8DC' : 'none';
+                  <div style={{
+                    background: '#fff',
+                    border: '1px solid #E8EAF0',
+                    borderRadius: 10,
+                    overflow: 'hidden',
+                    boxShadow: '0 1px 3px rgba(20,20,40,0.04)',
+                  }}>
+                    <div style={{ maxHeight: 620, overflowY: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                        <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
+                          <tr>
+                            <th style={{ ...thStyle, width: 40, textAlign: 'center' }}></th>
+                            <th style={{ ...thStyle, minWidth: 140 }}>DIN / Notice</th>
+                            <th style={{ ...thStyle, width: 190 }}>Notice File</th>
+                            <th style={{ ...thStyle, width: 220 }}>Replies</th>
+                            <th style={{ ...thStyle, width: 210 }}>Supporting Docs</th>
+                            <th style={{ ...thStyle, width: 190 }}>Acknowledgment</th>
+                            <th style={{ ...thStyle, width: 60, textAlign: 'center', borderRight: 'none' }}>Files</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredNotices.map((n, idx) => (
+                            <tr
+                              key={n.id}
+                              style={{
+                                borderBottom: '1px solid #F1F5F9',
+                                background: idx % 2 === 0 ? '#fff' : '#FBFCFE',
+                              }}
+                              onMouseEnter={(e) => { e.currentTarget.style.background = '#F8FAFF'; }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = idx % 2 === 0 ? '#fff' : '#FBFCFE';
+                              }}
+                            >
+                              {/* # */}
+                              <td style={{
+                                ...tdStyle, textAlign: 'center',
+                                color: '#94a3b8', fontSize: 11.5, fontWeight: 700,
+                              }}>
+                                {String(idx + 1).padStart(2, '0')}
+                              </td>
 
-                      return (
-                        <div key={labelItem.id} style={{
-                          background: '#fff',
-                          border: `1px solid ${borderColor}`,
-                          borderRadius: 10,
-                          overflow: 'hidden',
-                          boxShadow: shadowStyle,
-                          transition: 'all 0.15s ease',
-                          display: 'flex',
-                          flexDirection: 'column',
-                        }}>
-                          <div style={{ padding: '10px 12px', borderBottom: `1px solid ${borderColor}` }}>
-                            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-                              <div style={{ minWidth: 0, flex: 1 }}>
-                                <div style={{ fontSize: 13, fontWeight: 600, color: '#222', marginBottom: 2 }}>{labelItem.label}</div>
-                              </div>
-                              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                                <span style={{
-                                  flexShrink: 0, fontSize: 10, fontWeight: 500,
-                                  padding: '2px 8px', borderRadius: 20,
-                                  background: hasDocs ? '#E6F5EF' : '#f3f4f6',
-                                  color: hasDocs ? '#0F7A5A' : '#94a3b8',
-                                  border: `1px solid ${borderColor}`,
+                              {/* DIN */}
+                              <td style={tdStyle}>
+                                <div style={{
+                                  fontSize: 11.5, fontWeight: 700, color: '#1a1a2e',
+                                  fontFamily: 'monospace',
+                                  wordBreak: 'break-all', lineHeight: 1.3,
                                 }}>
-                                  {hasDocs ? `${docs.length} file${docs.length !== 1 ? 's' : ''}` : 'Empty'}
-                                </span>
-                                {canDeleteDocuments && (
-                                  <button onClick={() => handleDeleteLabel(labelItem.id)}
-                                    className="cdv-cat-delete-btn"
-                                    title="Delete label"
-                                    style={{
-                                      width: 20, height: 20, border: 'none', background: 'transparent',
-                                      color: '#d1d5db', cursor: 'pointer', display: 'flex',
-                                      alignItems: 'center', justifyContent: 'center', borderRadius: 4,
-                                      fontSize: 12, padding: 0, transition: 'all 0.15s',
-                                    }}>
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 12, height: 12 }}>
-                                      <polyline points="3 6 5 6 21 6" />
-                                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                                    </svg>
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-
-                            {docs.map((doc) => {
-                              const ext = (doc.document_name || '').split('.').pop().toLowerCase();
-                              const isZip = ['zip', 'rar', '7z'].includes(ext);
-                              const fileColor = isZip ? '#d97706' : '#0F7A5A';
-                              return (
-                                <div key={doc.id} style={{
-                                  marginTop: 6, fontSize: 11, color: fileColor, fontWeight: 500,
-                                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                                }}>
-                                  {isZip ? '📦' : '✓'} {doc.document_name}
+                                  {n.din}
                                 </div>
-                              );
-                            })}
-                          </div>
+                              </td>
 
-                          <div style={{ display: 'flex', background: hasDocs ? '#F2FBF7' : '#f8f9fc', marginTop: 'auto' }}>
-                            {hasDocs ? (
-                              <>
-                                {docs.length > 0 && !['zip', 'rar', '7z'].includes((docs[0].document_name || '').split('.').pop().toLowerCase()) && (
-                                  <button onClick={() => handleView(docs[0])}
-                                    style={{
-                                      flex: 1, padding: '7px 0', fontSize: 11, fontWeight: 500,
-                                      color: '#214274', background: 'none', border: 'none',
-                                      borderRight: '1px solid #8ECEBF', cursor: 'pointer',
-                                    }}>View</button>
+                              {/* Notice File */}
+                              <td style={tdStyle}>
+                                {n.courtNotices.length > 0 ? (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                    {n.courtNotices.map((doc) => (
+                                      <FileChip key={`cn-${doc.id}`} doc={doc} icon="📄" />
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <EmptyCell text="No notice file" />
                                 )}
-                                <button onClick={() => handleDownload(docs[0])}
-                                  style={{
-                                    flex: 1, padding: '7px 0', fontSize: 11, fontWeight: 500,
-                                    color: '#0F7A5A', background: 'none', border: 'none',
-                                    borderRight: canDeleteDocuments ? '1px solid #8ECEBF' : 'none',
-                                    cursor: 'pointer',
-                                  }}>Download</button>
-                                {canDeleteDocuments && (
-                                  <button onClick={() => handleDeleteDoc(docs[0].id)}
-                                    style={{
-                                      flex: 1, padding: '7px 0', fontSize: 11, fontWeight: 500,
-                                      color: '#C62828', background: 'none', border: 'none', cursor: 'pointer',
-                                    }}>Delete</button>
-                                )}
-                              </>
-                            ) : canEditClientInfo ? (
-                              <>
-                                <input type="file"
-                                  ref={(el) => (fileInputRefs.current[`doc-${labelItem.id}`] = el)}
-                                  onChange={(e) => { handleLabelUpload(e.target.files?.[0], labelItem.id); e.target.value = ''; }}
-                                  hidden />
-                                <button onClick={() => fileInputRefs.current[`doc-${labelItem.id}`]?.click()}
-                                  disabled={uploading}
-                                  style={{
-                                    flex: 1, padding: '8px 0', fontSize: 12, fontWeight: 500,
-                                    color: '#214274', background: 'none', border: 'none',
-                                    cursor: uploading ? 'wait' : 'pointer',
-                                  }}>{uploading ? 'Uploading…' : 'Select File'}</button>
-                              </>
-                            ) : (
-                              <div style={{ flex: 1, padding: '8px 0', fontSize: 12, color: '#94a3b8', textAlign: 'center' }}>
-                                No documents
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
+                              </td>
 
-                    {canEditClientInfo && !q && (
-                      addDocOpen ? (
-                        <div style={{
-                          border: '1px solid #214274',
-                          borderRadius: 10,
-                          padding: 12,
-                          background: '#fff',
-                        }}>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: '#222', marginBottom: 6 }}>
-                            New document label
-                          </div>
-                          <input
-                            value={customDocName}
-                            onChange={(e) => setCustomDocName(e.target.value)}
-                            placeholder="e.g. Rent Agreement"
-                            className="cdv-input-focus"
-                            autoFocus
-                            style={{
-                              width: '100%', fontSize: 12, padding: '6px 8px',
-                              borderRadius: 6, border: '1px solid #e9edf4',
-                              marginBottom: 8, fontFamily: 'inherit', boxSizing: 'border-box',
-                              outline: 'none',
-                            }}
-                          />
-                          <input
-                            type="file"
-                            ref={(el) => (fileInputRefs.current['add-custom-file'] = el)}
-                            onChange={(e) => setCustomFile(e.target.files?.[0] || null)}
-                            style={{ fontSize: 11, marginBottom: 10, display: 'block' }}
-                          />
-                          <div style={{ display: 'flex', gap: 8 }}>
-                            <button
-                              disabled={!customDocName.trim() || !customFile || uploading}
-                              onClick={async () => {
-                                await handleCustomDocSubmit();
-                                setAddDocOpen(false);
-                              }}
-                              style={{
-                                flex: 1, fontSize: 12, fontWeight: 600, padding: '7px 0',
-                                borderRadius: 7, border: 'none',
-                                background: (!customDocName.trim() || !customFile) ? '#ccc' : '#214274',
-                                color: '#fff',
-                                cursor: (!customDocName.trim() || !customFile || uploading) ? 'not-allowed' : 'pointer',
-                                fontFamily: 'inherit',
-                              }}
-                            >
-                              {uploading ? 'Uploading…' : 'Add'}
-                            </button>
-                            <button
-                              onClick={() => { setAddDocOpen(false); setCustomDocName(''); setCustomFile(null); }}
-                              style={{
-                                fontSize: 12, fontWeight: 600, padding: '7px 14px',
-                                borderRadius: 7, border: '1px solid #e9edf4',
-                                background: '#fff', color: '#94a3b8', cursor: 'pointer',
-                                fontFamily: 'inherit',
-                              }}
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setAddDocOpen(true)}
-                          style={{
-                            border: '1px dashed #214274',
-                            borderRadius: 10,
-                            background: '#f5f8ff',
-                            color: '#214274',
-                            fontSize: 13,
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            minHeight: 96,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            transition: 'all 0.15s ease',
-                            fontFamily: 'inherit',
-                          }}
-                          onMouseEnter={(e) => { e.currentTarget.style.background = '#eef2ff'; e.currentTarget.style.borderColor = '#16273f'; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.background = '#f5f8ff'; e.currentTarget.style.borderColor = '#214274'; }}
-                        >
-                          ＋ Add Document
-                        </button>
-                      )
-                    )}
+                              {/* Replies — Main HTML + Uploaded, chronological, one row each */}
+                              <td style={tdStyle}>
+                                {n.versionGroups.length > 0 ? (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                    {n.versionGroups.map((vg) => (
+                                      <div
+                                        key={`v-${vg.main._isHtml ? 'h' : 'd'}-${vg.main._id}-${vg.v}`}
+                                        style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                                      >
+                                        <VTag v={vg.v} />
+                                        <FileChip
+                                          doc={vg.main}
+                                          icon={vg.main._isHtml ? '📝' : '📄'}
+                                          isHtml={vg.main._isHtml}
+                                          label={vg.main.displayName}
+                                        />
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <EmptyCell text="No replies yet" />
+                                )}
+                              </td>
+
+                              {/* Supporting Docs — grouped by reply version (isolated per reply, no leakage) */}
+                              <td style={tdStyle}>
+                                {(() => {
+                                  const withSupports = n.versionGroups.filter(
+                                    (vg) => vg.supports.length > 0
+                                  );
+
+                                  if (withSupports.length === 0) {
+                                    return <EmptyCell text="No supporting docs yet" />;
+                                  }
+
+                                  return (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                      {withSupports.map((vg) => (
+                                        <div
+                                          key={`sup-group-${vg.main._isHtml ? 'h' : 'd'}-${vg.main._id}-${vg.v}`}
+                                          style={{ display: 'flex', flexDirection: 'column', gap: 4 }}
+                                        >
+                                          {vg.supports.map((s, si) => (
+                                            <div
+                                              key={`sup-${s.id}`}
+                                              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                                            >
+                                              {si === 0 ? (
+                                                <VTag v={vg.v} />
+                                              ) : (
+                                                <span style={{ minWidth: 22, display: 'inline-block' }} />
+                                              )}
+                                              <FileChip doc={s} icon="📎" />
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  );
+                                })()}
+                              </td>
+
+                              {/* Acknowledgment */}
+                              <td style={tdStyle}>
+                                {n.acks.length > 0 ? (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                    {n.acks.map((doc) => (
+                                      <FileChip key={`ack-${doc.id}`} doc={doc} icon="✅" />
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <EmptyCell text="No acknowledgment yet" />
+                                )}
+                              </td>
+
+                              {/* Files Count */}
+                              <td style={{ ...tdStyle, textAlign: 'center', borderRight: 'none' }}>
+                                <span style={{
+                                  display: 'inline-block',
+                                  padding: '2px 8px', borderRadius: 99,
+                                  background: '#EEF2FF', color: '#4338ca',
+                                  fontSize: 10.5, fontWeight: 700,
+                                }}>
+                                  {n.totalFiles}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+
+                          {/* ── CLOSURE ROW ── */}
+                          {closureDocs.length > 0 && (
+                            <tr style={{
+                              background: '#FEF2F2',
+                              borderTop: '2px solid #fecaca',
+                              borderBottom: '1px solid #F1F5F9',
+                            }}>
+                              <td style={{ ...tdStyle, textAlign: 'center', color: '#991b1b', fontWeight: 700 }}>
+                                🔒
+                              </td>
+                              <td style={tdStyle} colSpan={5}>
+                                <div style={{ fontSize: 11.5, fontWeight: 800, color: '#991b1b', marginBottom: 6 }}>
+                                  Case Closure Documents
+                                </div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                  {closureDocs.map((doc) => (
+                                    <FileChip key={`cl-${doc.id}`} doc={doc} icon="🔒" />
+                                  ))}
+                                </div>
+                              </td>
+                              <td style={{ ...tdStyle, textAlign: 'center', borderRight: 'none' }}>
+                                <span style={{
+                                  display: 'inline-block',
+                                  padding: '2px 8px', borderRadius: 99,
+                                  background: '#fee2e2', color: '#991b1b',
+                                  fontSize: 10.5, fontWeight: 700,
+                                }}>
+                                  {closureDocs.length}
+                                </span>
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* ── FOOTER SUMMARY ── */}
+                    <div style={{
+                      padding: '9px 14px',
+                      background: '#F8FAFC',
+                      borderTop: '1px solid #E2E8F0',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      fontSize: 11, color: '#64748b', fontWeight: 600,
+                    }}>
+                      <span>
+                        Showing <b style={{ color: '#1a1a2e' }}>{filteredNotices.length}</b> notice{filteredNotices.length !== 1 ? 's' : ''}
+                        {closureDocs.length > 0 && ' + Closure'}
+                      </span>
+                      <span>
+                        Total files: <b style={{ color: '#1a1a2e' }}>
+                          {filteredNotices.reduce((sum, n) => sum + n.totalFiles, 0) + closureDocs.length}
+                        </b>
+                      </span>
+                    </div>
                   </div>
                 );
               })()}

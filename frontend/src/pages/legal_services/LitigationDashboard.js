@@ -24,7 +24,7 @@ const STATUS_META = {
   open: { label: 'Open', color: '#0ea5e9', bg: '#E0F2FE', icon: '📂' },
   closed: { label: 'Closed', color: '#10b981', bg: '#D1FAE5', icon: '✅' },
   attention_required: { label: 'Attention Required', color: '#dc2626', bg: '#FEE2E2', icon: '⏰' },
-  under_review: { label: 'Under Review', color: PURPLE, bg: PURPLE_BG, icon: '👁' },
+  under_review: { label: 'Under Review', color: PURPLE, bg: PURPLE_BG, icon: '🔎' },
 };
 
 const noticeApi = {
@@ -206,8 +206,13 @@ export default function LitigationDashboard({
   }, []);
 
   const isNoticeAttention = (n) => {
-    // Only WIP or Under Review notices can be urgent
     if (n.status === 'open' || n.status === 'closed') return false;
+    
+    // ✅ NEW: If CEO is logged in, an escalated notice is ALWAYS urgent
+    if (user?.role === 'Founder' && n.has_escalated_items) {
+      return true;
+    }
+
     const due = n.extended_due_date || n.due_date;
     if (!due) return false;
     
@@ -215,28 +220,36 @@ export default function LitigationDashboard({
     const d = new Date(due); d.setHours(0, 0, 0, 0);
     const daysLeft = Math.ceil((d - today) / (1000 * 60 * 60 * 24));
     
-    return daysLeft <= 5; // True if 5 days or less, or overdue
+    return daysLeft <= 5; 
   };
 
-  // ✅ Safe turn logic (no crashes if job is missing)
+
+    // ✅ Helper: Checks if user is explicitly assigned to a job (Maker or Checker)
+  const isUserAssignedToJob = (jobId) => {
+    const parentJob = cases.find(c => Number(c.id) === Number(jobId));
+    if (!parentJob) return false;
+    const isMaker = (parentJob.makers || []).some(m => (m.id ?? m) === user?.id);
+    const isChecker = (parentJob.checkers || []).some(c => (c.id ?? c) === user?.id);
+    return isMaker || isChecker;
+  };
+
   const isNoticeMyTurn = (notice) => {
     const userId = user?.id;
-    const isAdmin = ['Admin', 'Founder', 'Manager', 'Team Lead'].includes(user?.role);
-    
-    if (isAdmin) return true; // Admins can see notices in panels for awareness
-
     const parentJob = cases.find(c => Number(c.id) === Number(notice.job_id)) || {};
 
-    // 1. Founder Turn
-    if (notice.review_status === 'escalated') return user?.role === 'Founder';
+    // 1. Founder Turn (Escalated items only)
+    // ✅ We ONLY change this one line to check the backend flag we created
+    if (user?.role === 'Founder' && notice.has_escalated_items) {
+      return true; 
+    }
     
-    // 2. Checker Turn
+    // 2. Checker Turn (Under Review / Pending Review)
     if (notice.status === 'under_review' || notice.review_status === 'pending') {
       const checkers = parentJob.checkers || notice.checkers || [];
       return checkers.some(ch => (typeof ch === 'object' ? ch.id : ch) === userId);
     }
     
-    // 3. Maker Turn
+    // 3. Maker Turn (WIP status)
     if (notice.status === 'wip') {
       const makers = parentJob.makers || notice.makers || [];
       return makers.some(m => (typeof m === 'object' ? m.id : m) === userId);
@@ -245,7 +258,11 @@ export default function LitigationDashboard({
     return false;
   };
 
-  // ✅ 1. Pending Notices (WIP / Under Review, but NOT urgent)
+
+
+
+
+  // ✅ 1. Pending Notices (My Turn, Not Urgent)
   const pendingNotices = useMemo(() => {
     return notices.filter(n => {
       if (n.status === 'open' || n.status === 'closed') return false; 
@@ -254,7 +271,7 @@ export default function LitigationDashboard({
     });
   }, [notices, cases, user]);
 
-  // ✅ 2. Attention Notices (Urgent!)
+  // ✅ 2. Attention Notices (My Turn, Urgent)
   const attentionNotices = useMemo(() => {
     return notices.filter(n => {
       if (n.status === 'open' || n.status === 'closed') return false; 
@@ -263,10 +280,10 @@ export default function LitigationDashboard({
     });
   }, [notices, cases, user]);
 
-  // ✅ 3. Open Notices (Completed)
+  // ✅ 3. Open Notices (Completed - ONLY if explicitly assigned to the job)
   const openNoticesList = useMemo(() => {
-    return notices.filter(n => n.status === 'open');
-  }, [notices]);
+    return notices.filter(n => n.status === 'open' && isUserAssignedToJob(n.job_id));
+  }, [notices, cases, user]);
 
   const canAddNewCase = ['Founder', 'Manager', 'Team Lead', 'Admin'].includes(user?.role);
 
@@ -353,7 +370,7 @@ export default function LitigationDashboard({
   const NOTICE_CARDS = [
     { label: 'All Notices', value: totalNotices, color: P, icon: '🔔', sub: 'all notices across cases', onClick: () => goToFilteredNotices() },
     { label: 'WIP', value: wipNotices, color: '#f59e0b', icon: '🔄', sub: 'awaiting maker work', onClick: () => goToFilteredNotices('wip') },
-    { label: 'Under Review', value: underReviewNotices, color: PURPLE, icon: '👁', sub: 'pending checker review', onClick: () => goToFilteredNotices('under_review') },
+    { label: 'Under Review', value: underReviewNotices, color: PURPLE, icon: '🔎', sub: 'pending checker review', onClick: () => goToFilteredNotices('under_review') },
     { label: 'Open', value: openNoticesCount, color: '#0ea5e9', icon: '📂', sub: 'acknowledged', onClick: () => goToFilteredNotices('open') },
     { label: 'Attention Required', value: attentionNoticesCount, color: attentionNoticesCount > 0 ? RED : MUT, icon: '⏰', sub: 'due ≤ 5 days or overdue', onClick: () => goToFilteredNotices('attention_required') },
   ];

@@ -58,7 +58,7 @@ const REVIEW_META = {
 };
 
 const CLOSURE_DOC_META = {
-  order:             { label: 'Order',             icon: '📜', description: 'Final order document' },
+  order:             { label: 'Order Copy',             icon: '📜', description: 'Final order document' },
   demand_notice:     { label: 'Demand Notice',     icon: '💰', description: 'Demand notice from department' },
   computation_sheet: { label: 'Computation Sheet', icon: '📊', description: 'Tax computation working' },
 };
@@ -123,13 +123,13 @@ export function NoticeDetailModal({ noticeId, canEdit, onClose, onUpdated, onRep
       ]);
       setNotice(noticeRes.data);
       const replyList = Array.isArray(repliesRes.data) ? repliesRes.data : (repliesRes.data.results || []);
-      setHtmlReplies(replyList.filter(r => r.status !== 'draft')); 
+      setHtmlReplies(replyList.filter(r => canEdit ? true : r.status !== 'draft')); 
     } catch {
       setError('Failed to load notice.');
     } finally {
       setLoading(false);
     }
-  }, [noticeId]);
+  }, [noticeId,canEdit]);
 
   useEffect(() => { fetchNotice(); }, [fetchNotice]);
 
@@ -140,18 +140,23 @@ export function NoticeDetailModal({ noticeId, canEdit, onClose, onUpdated, onRep
   const allRepliesAndDocs = useMemo(() => {
     if (!notice) return [];
     
+    // ✅ FIX: Filter out ALL 'draft' documents if the user is a Checker
+    const visibleDocs = (notice.documents || []).filter(d => 
+      canEdit ? true : d.review_status !== 'draft'
+    );
+    
     // HTML Replies (Main)
     const htmls = htmlReplies.map(r => ({ 
       ...r, _isHtml: true, _type: 'main', _sortTime: new Date(r.reviewed_at || r.created_at).getTime() 
     }));
     
-    // Uploaded Replies (Main)
-    const mainDocs = (notice.documents || []).filter(d => ['pending', 'reply'].includes(d.doc_type)).map(r => ({
+    // Uploaded Replies (Main) - USING visibleDocs NOW
+    const mainDocs = visibleDocs.filter(d => ['pending', 'reply'].includes(d.doc_type)).map(r => ({
       ...r, _isDoc: true, _type: 'main', _sortTime: new Date(r.reviewed_at || r.uploaded_at).getTime()
     }));
 
-    // Supporting Docs (Child of Main Uploads)
-    const supportDocs = (notice.documents || []).filter(d => ['pending_support', 'supporting_doc'].includes(d.doc_type));
+    // Supporting Docs (Child of Main Uploads) - USING visibleDocs NOW
+    const supportDocs = visibleDocs.filter(d => ['pending_support', 'supporting_doc'].includes(d.doc_type));
 
     // Combine and sort MAIN replies to assign versions
     const mainMerged = [...htmls, ...mainDocs].sort((a, b) => a._sortTime - b._sortTime);
@@ -165,11 +170,11 @@ export function NoticeDetailModal({ noticeId, canEdit, onClose, onUpdated, onRep
     // Map supporting docs to their parent version
     const finalList = [];
     mainMerged.forEach(main => {
-      finalList.push(main); // Push main reply
+      finalList.push(main);
       
-      // If it's a document reply, find its supporting docs and push them right after
       if (main._isDoc) {
-        const linkedSupports = supportDocs.filter(sd => sd.reply_version === main.reply_version);
+        // ✅ CRITICAL BUG FIX (Ensure this is main.id, not main.reply_version)
+        const linkedSupports = supportDocs.filter(sd => String(sd.reply_version) === String(main.id));
         linkedSupports.forEach(sd => {
           finalList.push({
             ...sd, _isSupport: true, _versionLabel: main._versionLabel, _sortTime: main._sortTime
@@ -178,8 +183,8 @@ export function NoticeDetailModal({ noticeId, canEdit, onClose, onUpdated, onRep
       }
     });
     
-    return finalList.reverse(); // Show newest first
-  }, [htmlReplies, notice]);
+    return finalList.reverse();
+  }, [htmlReplies, notice, canEdit]); // ✅ Added canEdit to dependencies
 
   const allApprovedReplies = allRepliesAndDocs.filter(
     r => r.status === 'approved' || r.review_status === 'approved'
@@ -198,7 +203,7 @@ export function NoticeDetailModal({ noticeId, canEdit, onClose, onUpdated, onRep
   const repliesLocked = !hasCourtNotice;
   const ackLocked = !hasCourtNotice || !hasApprovedReply;
 
-  const allAckDocs = (notice?.documents || []).filter(d => d.doc_type === 'acknowledgment');
+  const allAckDocs = (notice?.documents || []).filter(d => d.doc_type === 'acknowledgment'&& (canEdit ? true : d.review_status !== 'draft'));
   const hasPendingAck = allAckDocs.some(d => d.review_status === 'pending' || d.review_status === 'escalated');
   const hasRejectedAck = allAckDocs.some(d => d.review_status === 'rejected');
   const canUploadAck = isMakerUploader && hasApprovedReply && !acknowledgmentDoc && !hasPendingAck;
@@ -386,7 +391,7 @@ export function NoticeDetailModal({ noticeId, canEdit, onClose, onUpdated, onRep
                   {/* Court Notice inline */}
                   <div>
                     <div style={{ fontSize: 9.5, fontWeight: 700, color: C.muted, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>
-                      Court Notice <span style={{ color: C.red }}>*</span>
+                       Notice <span style={{ color: C.red }}>*</span>
                     </div>
                     {courtNoticeDoc ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
@@ -881,7 +886,26 @@ export function UploadReplyBundleModal({ noticeId, onClose, onSuccess }) {
         </div>
         <div style={{ padding: '12px 20px', borderTop: `1px solid ${C.borderLight}`, background: C.bg, display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
           <Button onClick={onClose} disabled={uploading}>Cancel</Button>
-          <Button type="primary" onClick={handleSubmit} loading={uploading} disabled={!replyFile} style={{ background: C.navyLight, borderColor: C.navyLight }}>
+          {/* <Button type="primary" onClick={handleSubmit} loading={uploading} disabled={!replyFile} style={{ background: C.navyLight, borderColor: C.navyLight }}>
+            ⬆ Upload
+          </Button> */}
+
+          <Button
+            type="primary"
+            onClick={handleSubmit}
+            loading={uploading}
+            disabled={!replyFile || uploading}
+            style={{
+              // Dull gray when no main file; navy when ready
+              background: (!replyFile || uploading) ? '#94A3B8' : C.navyLight,
+              borderColor: (!replyFile || uploading) ? '#94A3B8' : C.navyLight,
+              // Keep label always visible (Ant Design hides it when disabled)
+              color: '#FFFFFF',
+              fontWeight: 700,
+              opacity: 1, // don't let AntD fade the text away
+              cursor: (!replyFile || uploading) ? 'not-allowed' : 'pointer',
+            }}
+          >
             ⬆ Upload
           </Button>
         </div>
@@ -994,7 +1018,7 @@ function UnifiedRepliesCard({ items, isAssignedMaker, locked, deletingId, onRepl
 
       <div style={{ padding: '8px 12px', flex: 1, maxHeight: 220, overflowY: 'auto' }}>
         {locked ? (
-           <div style={{ padding: '20px 8px', textAlign: 'center', fontSize: 11, color: C.muted, fontStyle: 'italic' }}>Upload court notice to unlock</div>
+           <div style={{ padding: '20px 8px', textAlign: 'center', fontSize: 11, color: C.muted, fontStyle: 'italic' }}>Upload notice to unlock</div>
         ) : items.length === 0 ? (
           <div style={{ padding: '20px 8px', textAlign: 'center', fontSize: 11, color: C.muted, fontStyle: 'italic' }}>No replies or documents uploaded yet</div>
         ) : (

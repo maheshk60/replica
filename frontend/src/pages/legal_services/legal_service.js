@@ -68,7 +68,7 @@ const items = [
     color: '#7C3AED',
     light: '#EDE9FE',
     built: true,
-    comingSoon: true,
+    //comingSoon: true,
   },
   {
     label: 'FEMA',
