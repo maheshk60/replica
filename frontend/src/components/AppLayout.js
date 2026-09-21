@@ -1848,7 +1848,7 @@ export default function AppLayout({ children }) {
             </div>
           )}
           <div onClick={() => navigate('/')} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-            {/* <img src={isMobile ? caosalogo : logo} alt="Logo" style={{ height: 40, width: 'auto' }} /> */}
+            <img src={isMobile ? caosalogo : logo} alt="Logo" style={{ height: 40, width: 'auto' }} />
           </div>
         </div>
 

@@ -36,7 +36,7 @@ const REVIEW_META = {
   pending:   { label: 'Under Review',  color: C.amber, bg: C.amberBg, border: C.amberBorder },
   approved:  { label: 'Approved',      color: C.green, bg: C.greenBg, border: C.greenBorder },
   rejected:  { label: 'Rejected',      color: C.red,   bg: C.redBg,   border: C.redBorder },
-  escalated: { label: 'Escalated',     color: C.purple,bg: C.purpleBg,border: C.purpleBorder },
+  escalated: { label: 'Move to CEO',     color: C.purple,bg: C.purpleBg,border: C.purpleBorder },
 };
 
 // ══════════════════════════════════════════════════════════════════
@@ -262,7 +262,7 @@ function FileCard({ icon, title, status, isHtml, onOpen, onDownload, onDelete, c
 // NOTICE DETAIL VIEW
 // ══════════════════════════════════════════════════════════════════
 function NoticeDetailView({
-  notice, replies, allReplies, isAssignedMaker, isFounder,
+  notice, replies, allReplies, isAssignedMaker, isFounder,isCaseClosed,activityCase,
   onReply, onEdit, onUploadReplyClick,
   uploadingCourtNotice, uploadingAck, uploadingSupportId, deletingId,
   onUploadCourtNotice, onUploadAck, onUploadSupportDoc, onDeleteDoc,
@@ -383,11 +383,34 @@ function NoticeDetailView({
         {/* ROW 1: Notice & Acknowledgment Headings */}
         <div></div>
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <SubHeading>Notice <span style={{ color: C.red }}>*</span></SubHeading>
-            {isAssignedMaker && !courtNoticeDoc && (
-              <label style={{ padding: '2px 8px', border: `1px dashed ${C.navy}`, borderRadius: 4, color: C.navy, fontSize: 9.5, fontWeight: 700, cursor: uploadingCourtNotice ? 'wait' : 'pointer' }}>
-                <input type="file" accept=".pdf,.doc,.docx" style={{ display: 'none' }} onChange={(e) => e.target.files[0] && onUploadCourtNotice(e.target.files[0])} disabled={uploadingCourtNotice} />
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,         
+            marginBottom: 8,
+          }}>
+            <SubHeading>
+              Notice <span style={{ color: C.red }}>*</span>
+            </SubHeading>
+
+            {isAssignedMaker && !courtNoticeDoc && !isCaseClosed && (
+              <label style={{
+                padding: '2px 8px',
+                border: `1px dashed ${C.navy}`,
+                borderRadius: 4,
+                color: C.navy,
+                fontSize: 9.5,
+                fontWeight: 700,
+                cursor: uploadingCourtNotice ? 'wait' : 'pointer',
+                margin: 0,
+              }}>
+                <input
+                  type="file"
+                  accept=".pdf,.doc,.docx"
+                  style={{ display: 'none' }}
+                  disabled={uploadingCourtNotice}
+                  onChange={(e) => e.target.files[0] && onUploadCourtNotice(e.target.files[0])}
+                />
                 {uploadingCourtNotice ? '⏳' : '⬆ Upload'}
               </label>
             )}
@@ -429,7 +452,7 @@ function NoticeDetailView({
         {/* Buttons moved next to Replies Heading */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingTop: 8 }}>
           <SubHeading>Replies</SubHeading>
-          {isAssignedMaker && !repliesLocked && (
+          {isAssignedMaker && !repliesLocked && !isCaseClosed && (
             <div style={{ display: 'flex', gap: 5, paddingBottom: 6 }}>
               <button onClick={onUploadReplyClick} style={{ padding: '3px 10px', border: `1px solid ${C.navy}`, background: '#fff', color: C.navy, borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>⬆ Upload</button>
               <button onClick={onReply} style={{ padding: '3px 10px', border: 'none', background: C.navy, color: '#fff', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>📝 Reply</button>
@@ -522,6 +545,80 @@ function NoticeDetailView({
         )}
       </div>
 
+      {/* ────── CASE CLOSURE DOCUMENTS ────── */}
+      {activityCase?.closure_review_status === 'approved' &&
+       activityCase?.closure_documents?.length > 0 && (() => {
+        const CLOSURE_LABELS = {
+          order: 'Order Copy',
+          demand_notice: 'Demand Notice',
+          computation_sheet: 'Computation Sheet',
+        };
+        const orderedTypes = ['order', 'demand_notice', 'computation_sheet'];
+        const closureMap = {};
+        (activityCase.closure_documents || []).forEach(d => { closureMap[d.doc_type] = d; });
+
+        const handleOpenClosure = (doc) => {
+          if (doc?.file_url) window.open(doc.file_url, '_blank', 'noopener,noreferrer');
+        };
+
+        const handleDownloadClosure = async (doc) => {
+          if (!doc?.file_url) return;
+          try {
+            const response = await fetch(doc.file_url);
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = doc.file_name || 'download';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+          } catch { /* ignore */ }
+        };
+
+        return (
+          <>
+            <SectionLabel>Case Closure Documents</SectionLabel>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, 1fr)',
+              gap: 12,
+              padding: '10px 12px',
+              background: '#FEF2F2',
+              border: `1px solid #fecaca`,
+              borderRadius: 6,
+              marginBottom: 16,
+              marginLeft: 16,
+            }}>
+              {orderedTypes.map(type => {
+                const doc = closureMap[type];
+                if (!doc) return null;
+                return (
+                  <div key={`act-cl-${doc.id}`} style={{
+                    display: 'flex', flexDirection: 'column', gap: 6,
+                  }}>
+                    <div style={{
+                      fontSize: 9.5, fontWeight: 800, color: '#991b1b',
+                      textTransform: 'uppercase', letterSpacing: '.05em',
+                    }}>
+                      {CLOSURE_LABELS[type]}
+                    </div>
+                    <FileCard
+                      title={doc.file_name}
+                      status="approved"
+                      onOpen={() => handleOpenClosure(doc)}
+                      onDownload={() => handleDownloadClosure(doc)}
+                      canDelete={false}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        );
+      })()}
+
       {/* NOTES */}
       <SectionLabel>Notes</SectionLabel>
       <div style={{ padding: '10px 12px', background: C.bgSoft, border: `1px solid ${C.borderLight}`, borderLeft: `3px solid ${C.navy}`, borderRadius: 6, fontSize: 12, color: C.ink, whiteSpace: 'pre-wrap', marginBottom: 16 }}>
@@ -531,9 +628,11 @@ function NoticeDetailView({
       {/* SUBMIT FOR REVIEW */}
       {isAssignedMaker && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12, paddingTop: 12, borderTop: `1px solid ${C.borderLight}`, marginTop: 'auto' }}>
-          <span style={{ fontSize: 11, color: MUT }}>
-            {hasDrafts ? <b style={{ color: C.amber }}>⚠ You have unsaved drafts to submit</b> : 'All documents are submitted.'}
-          </span>
+            {hasDrafts && (
+              <span style={{ fontSize: 11, color: C.amber, fontWeight: 700 }}>
+                ⚠ You have draft(s) ready to submit for review
+              </span>
+            )}
           <button onClick={onSubmitDocs} disabled={!hasDrafts || submittingDocs} style={{
             padding: '8px 18px', borderRadius: 6, border: 'none',
             background: hasDrafts ? C.navy : '#CBD5E1', color: '#fff',
@@ -594,9 +693,20 @@ export default function ActivityTimelineV2({ activityCase, subServiceName, canEd
   const isAssignedChecker = (caseData?.checkers || []).some((c) => c.id === user?.id);
   const isFounder = user?.role === 'Founder';
   const isCeoRole = isFounder; 
-  const isCaseClosed = caseData?.status === 'closed';
+  // const isCaseClosed = caseData?.status === 'closed';
+  // const showCloseCaseButton = !!user;
+  // const canAddNotice = isAssignedMaker && !isCaseClosed;
+
+  const isCaseClosed = 
+    caseData?.status === 'closed' || 
+    caseData?.computed_status === 'closed' || 
+    activityCase?.status === 'closed' || 
+    activityCase?.computed_status === 'closed' || 
+    activityCase?.closure_review_status === 'approved';
   const showCloseCaseButton = !!user;
-  const canAddNotice = isAssignedMaker && !isCaseClosed;
+  const canAddNotice = isAssignedMaker && !isCaseClosed; 
+
+
   const hasSummary = !!activityCase.job_description;
 
   const showToast = (message, type = 'success') => { setToast({ message, type }); };
@@ -845,6 +955,8 @@ export default function ActivityTimelineV2({ activityCase, subServiceName, canEd
             allReplies={allReplies}
             isAssignedMaker={isAssignedMaker}
             isFounder={isFounder}
+            isCaseClosed={isCaseClosed}
+            activityCase={activityCase}
             onReply={() => setReplyModalNotice(selectedNoticeDetails)}
             onUploadReplyClick={() => setShowUploadReplyBundleModal(true)}
             onEdit={() => setEditNotice(selectedNoticeDetails)}
@@ -868,9 +980,35 @@ export default function ActivityTimelineV2({ activityCase, subServiceName, canEd
           />
         </div>
       </div>
-      {showAddNoticeModal && <AddNoticeModal courtCaseId={activityCase.id} onClose={() => setShowAddNoticeModal(false)} onCreated={() => { setShowAddNoticeModal(false); fetchNotices(); }} />}
+      {showAddNoticeModal && <AddNoticeModal courtCaseId={activityCase.id} onClose={() => setShowAddNoticeModal(false)} onCreated={() => { setShowAddNoticeModal(false); fetchNotices(); if (onUpdated) onUpdated(); }} />}
       {editNotice && <AddNoticeModal courtCaseId={activityCase.id} editNotice={editNotice} submitForReview={isAssignedMaker && !isFounder} onClose={() => setEditNotice(null)} onCreated={() => { setEditNotice(null); fetchNotices(); fetchSelectedNoticeDetails(); fetchPendingNoticeEdits(); }} />}
-      {replyModalNotice && <ReplyEditorModal noticeId={replyModalNotice.id} notice={replyModalNotice} replyId={null} mode="edit" currentUserId={user?.id} isAssignedMaker={isAssignedMaker} isAssignedChecker={isAssignedChecker} isCeoRole={isCeoRole} onClose={() => setReplyModalNotice(null)} onSaved={(data, action) => { fetchNotices(); fetchSelectedNoticeDetails(); if (onUpdated) onUpdated(); if (['approve', 'reject'].includes(action)) setReplyModalNotice(null); }} />}
+      {/* {replyModalNotice && <ReplyEditorModal noticeId={replyModalNotice.id} notice={replyModalNotice} replyId={null} mode="edit" currentUserId={user?.id} isAssignedMaker={isAssignedMaker} isAssignedChecker={isAssignedChecker} isCeoRole={isCeoRole} onClose={() => setReplyModalNotice(null)} onSaved={(data, action) => { fetchNotices(); fetchSelectedNoticeDetails(); if (onUpdated) onUpdated(); if (['approve', 'reject'].includes(action)) setReplyModalNotice(null); }} />} */}
+      {replyModalNotice && <ReplyEditorModal 
+        noticeId={replyModalNotice.id} 
+        notice={replyModalNotice} 
+        replyId={null} 
+        mode="edit" 
+        currentUserId={user?.id} 
+        isAssignedMaker={isAssignedMaker} 
+        isAssignedChecker={isAssignedChecker} 
+        isCeoRole={isCeoRole} 
+        onClose={() => setReplyModalNotice(null)} 
+        onSaved={(data, action) => { 
+          // ✅ ONLY refresh parent data; DO NOT close modal on save/draft/send
+          fetchNotices(); 
+          fetchSelectedNoticeDetails(); 
+          
+          // ✅ Only trigger heavy parent refresh on final actions
+          if (['approve', 'reject', 'reopen'].includes(action)) {
+            if (onUpdated) onUpdated();
+          }
+          
+          // ✅ Only auto-close on approve/reject (final actions handled by checker)
+          if (['approve', 'reject'].includes(action)) {
+            setReplyModalNotice(null); 
+          }
+        }} 
+      />}
       {showCloseCaseModal && <CloseCaseModal courtCaseId={activityCase.id} canEdit={isAssignedMaker && !isCaseClosed} onClose={() => setShowCloseCaseModal(false)} onUpdated={() => { onUpdated && onUpdated(); fetchNotices(); }} />}
       {showUploadReplyBundleModal && selectedNoticeDetails && <UploadReplyBundleModal noticeId={selectedNoticeDetails.id} onClose={() => setShowUploadReplyBundleModal(false)} onSuccess={() => { setShowUploadReplyBundleModal(false); fetchSelectedNoticeDetails(); fetchNotices(); }} />}
     </div>

@@ -5,7 +5,7 @@ from django.db.models import Q
 from .models import (
     TDSLitigation, IncomeTaxLitigation, MCACase, FEMACase,
     PartnershipCase, LegalCaseAuditLog, ReviewRequest,CaseNotice, NoticeDocument, NoticeReply,
-    CaseClosureDocument,MCAFiling, MCAFilingDocument
+    CaseClosureDocument,
 )
 
 
@@ -290,133 +290,11 @@ class IncomeTaxLitigationSerializer(BaseLegalCaseSerializer):
         return 'wip'
 
 
-
-
-# ══════════════════════════════════════════════════════════════════
-# MCA SERIALIZERS
-# ══════════════════════════════════════════════════════════════════
-from .mca.constants import get_form_metadata
-
-
-# 1. Document Serializer
-class MCAFilingDocumentSerializer(serializers.ModelSerializer):
-    file_url = serializers.SerializerMethodField()
-    uploaded_by_name = serializers.SerializerMethodField()
-    reviewed_by_name = serializers.SerializerMethodField()
-
-    class Meta:
-        model = MCAFilingDocument
-        fields = [
-            'id', 'filing', 'file', 'file_url', 'file_name',
-            'doc_type', 'parent_draft', 'review_status', 'review_note',
-            'reviewed_by', 'reviewed_by_name', 'reviewed_at',
-            'uploaded_by', 'uploaded_by_name', 'uploaded_at',
-        ]
-        read_only_fields = [
-            'file_name', 'review_status', 'review_note',
-            'reviewed_by', 'reviewed_at',
-            'uploaded_by', 'uploaded_at',
-            'file_url', 'uploaded_by_name', 'reviewed_by_name',
-        ]
-
-    def get_file_url(self, obj):
-        request = self.context.get('request')
-        if request and obj.file:
-            return request.build_absolute_uri(obj.file.url)
-        return None
-
-    def get_uploaded_by_name(self, obj):
-        return (obj.uploaded_by.get_full_name() or obj.uploaded_by.email) if obj.uploaded_by else None
-
-    def get_reviewed_by_name(self, obj):
-        return (obj.reviewed_by.get_full_name() or obj.reviewed_by.email) if obj.reviewed_by else None
-
-
-# 2. Filing Serializer
-class MCAFilingSerializer(serializers.ModelSerializer):
-    created_by_name = serializers.SerializerMethodField()
-    documents = MCAFilingDocumentSerializer(many=True, read_only=True)
-    form_metadata = serializers.SerializerMethodField()
-
-    class Meta:
-        model = MCAFiling
-        fields = [
-            'id', 'mca_case', 'event_date', 'filing_due_date', 'extended_due_date',
-            'srn_number', 'challan_number',
-            'status', 'stage', 'notes',
-            'review_status', 'review_note', 'reviewed_by', 'reviewed_at',
-            'srn_review_status', 'srn_review_note', 'srn_reviewed_by', 'srn_reviewed_at',
-            'mca_outcome', 'mca_outcome_note',
-            'mca_outcome_recorded_by', 'mca_outcome_recorded_at',
-            'created_by', 'created_by_name', 'created_at', 'updated_at',
-            'documents', 'form_metadata',
-        ]
-        read_only_fields = [
-            'created_by', 'created_at', 'updated_at',
-            'status', 'stage',
-            'review_status', 'reviewed_by', 'reviewed_at',
-            'srn_review_status', 'srn_reviewed_by', 'srn_reviewed_at',
-            'mca_outcome_recorded_by', 'mca_outcome_recorded_at',
-        ]
-
-    def get_created_by_name(self, obj):
-        return (obj.created_by.get_full_name() or obj.created_by.email) if obj.created_by else None
-
-    def get_form_metadata(self, obj):
-        sub_service = obj.mca_case.sub_service
-        slug = ''
-        if sub_service:
-            slug = getattr(sub_service, 'slug', None) or sub_service.name.lower().replace(' ', '-')
-        return get_form_metadata(slug)
-
-
-# 3. Case Serializer (main_service_name belongs HERE)
 class MCACaseSerializer(BaseLegalCaseSerializer):
-    sub_service_name = serializers.CharField(source='sub_service.name', read_only=True, default=None)
-    main_service_name = serializers.CharField(source='sub_service.main_service.name', read_only=True, default=None)
-    sub_service_period = serializers.CharField(source='sub_service.period', read_only=True, default=None)
-    task_id = serializers.SerializerMethodField()
-    task_period = serializers.SerializerMethodField()
-    linked_task = serializers.SerializerMethodField()
-    filings = MCAFilingSerializer(many=True, read_only=True)
-    form_metadata = serializers.SerializerMethodField()
-
     class Meta:
         model = MCACase
         fields = '__all__'
         read_only_fields = ['reference_no', 'created_by']
-
-    def get_task_id(self, obj):
-        return obj.task.task_id if getattr(obj, 'task', None) else None
-
-    def get_task_period(self, obj):
-        return obj.task.period if getattr(obj, 'task', None) else None
-
-    def get_linked_task(self, obj):
-        task = getattr(obj, 'task', None)
-        if not task:
-            return None
-        return {
-            'id': task.id,
-            'task_id': task.task_id,
-            'client_name': getattr(task.client, 'name', None),
-            'sub_service_name': getattr(task.sub_service, 'name', None),
-            'spoc_name': getattr(task.spoc, 'name', None),
-            'team_name': getattr(task.team, 'name', None),
-            'status': task.status,
-            'period': task.period,
-            'due_date': str(task.due_date) if task.due_date else None,
-            'created_by_name': (task.created_by.get_full_name() or task.created_by.email) if task.created_by else None,
-            'created_at': task.created_at.isoformat() if task.created_at else None,
-        }
-
-    def get_form_metadata(self, obj):
-        sub_service = obj.sub_service
-        slug = ''
-        if sub_service:
-            slug = getattr(sub_service, 'slug', None) or sub_service.name.lower().replace(' ', '-')
-        return get_form_metadata(slug)
-
 
 
 class FEMACaseSerializer(BaseLegalCaseSerializer):

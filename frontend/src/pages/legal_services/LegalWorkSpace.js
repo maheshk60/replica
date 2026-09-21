@@ -850,25 +850,96 @@ export default function LegalWorkSpace() {
   const [pendingReview, setPendingReview] = useState(null);
   const [activeReviewCount, setActiveReviewCount] = useState(0); 
 
-  const loadPendingReview = () => {
+  const loadPendingReview = async () => {
     if (!activityCase?.id) { 
       setPendingReview(null); 
       setActiveReviewCount(0); 
       return; 
     }
-    reviewApi.list({ court_case: activityCase.id })
-      .then((res) => {
-        const data = Array.isArray(res.data) ? res.data : (res.data.results || []);
-        const active = data
-          .filter((r) => r.status === 'pending' || r.status === 'escalated')
-          .sort((a, b) => new Date(b.submitted_at) - new Date(a.submitted_at));
-        setPendingReview(active[0] || null);
-        setActiveReviewCount(active.length); 
-      })
-      .catch(() => {
-        setPendingReview(null);
-        setActiveReviewCount(0); 
+    
+    try {
+      // 1. Fetch baseline review datasets in parallel
+      const [reviewsRes, noticesRes, caseRes] = await Promise.all([
+        api.get(`/legal-services/reviews/`, { params: { court_case: activityCase.id } }),
+        api.get(`/legal-services/notices/`, { params: { court_case: activityCase.id } }),
+        api.get(`/legal-services/court-cases/${activityCase.id}/`)
+      ]);
+
+      const reviewData = Array.isArray(reviewsRes.data) ? reviewsRes.data : (reviewsRes.data.results || []);
+      const noticeData = Array.isArray(noticesRes.data) ? noticesRes.data : (noticesRes.data.results || []);
+      const caseObj = caseRes.data;
+
+      // 2. Count active Summary updates & Notice Edit requests
+      const activeSummaryAndEdits = reviewData.filter(r => 
+        (r.action_type === 'summary' || r.action_type === 'notice_edit') &&
+        (r.status === 'pending' || r.status === 'escalated')
+      );
+
+      // 3. Count active Notice reviews (when first created)
+      const activeNoticeReviewsCount = noticeData.filter(n => 
+        n.review_status === 'pending' || n.review_status === 'escalated'
+      ).length;
+
+      // 4. Count active Notice Document uploads (Acknowledgments & Main Uploaded Replies)
+      let activeDocReviewsCount = 0;
+      noticeData.forEach(n => {
+        (n.documents || []).forEach(d => {
+          const isSubmitted = ['pending', 'escalated'].includes(d.review_status);
+          if (!isSubmitted) return;
+
+          if (d.doc_type === 'acknowledgment') {
+            activeDocReviewsCount++;
+          } else if (d.doc_type === 'pending' || d.doc_type === 'reply') {
+            activeDocReviewsCount++; // Main uploaded reply bundle
+          }
+        });
       });
+
+      // 5. Count active Word-Editor replies (NoticeReplies)
+      let activeWordRepliesCount = 0;
+      if (noticeData.length > 0) {
+        const replyPromises = noticeData.map(n =>
+          api.get('/legal-services/notice-replies/', { params: { notice: n.id } })
+            .then(r => {
+              const list = Array.isArray(r.data) ? r.data : (r.data.results || []);
+              return list.filter(reply => reply.status === 'pending' || reply.status === 'escalated');
+            })
+            .catch(() => [])
+        );
+        const replyResults = await Promise.all(replyPromises);
+        activeWordRepliesCount = replyResults.flat().length;
+      }
+
+      // 6. Count active Case Closure requests
+      const hasActiveClosure = caseObj && ['pending', 'escalated'].includes(caseObj.closure_review_status);
+      const activeClosureCount = hasActiveClosure ? 1 : 0;
+
+      // 7. Sum everything up
+      const totalActiveCount = 
+        activeSummaryAndEdits.length + 
+        activeNoticeReviewsCount + 
+        activeDocReviewsCount + 
+        activeWordRepliesCount + 
+        activeClosureCount;
+
+      // Set preview for the most recent summary/edit review
+      const sortedSummaryAndEdits = activeSummaryAndEdits.sort((a, b) => new Date(b.submitted_at) - new Date(a.submitted_at));
+      setPendingReview(sortedSummaryAndEdits[0] || null);
+
+      // ✅ FIX: Only show badge count if user is Admin, Founder, or Assigned Checker
+      const isChecker = (caseObj?.checkers || []).some(c => (c.id || c) === user?.id);
+      const isAdminOrCEO = ['Admin', 'Founder', 'Manager'].includes(user?.role);
+      
+      if (isChecker || isAdminOrCEO) {
+        setActiveReviewCount(totalActiveCount);
+      } else {
+        setActiveReviewCount(0); // Makers don't get notifications for things waiting on the Checker
+      }
+    } catch (err) {
+      console.error("Failed to accurately load active reviews count:", err);
+      setPendingReview(null);
+      setActiveReviewCount(0);
+    }
   };
 
   useEffect(() => {
@@ -1178,7 +1249,7 @@ export default function LegalWorkSpace() {
             {[
               { key: 'details', label: 'Client Details', icon: '👤' },
               { key: 'documents', label: 'Documents', icon: '📁' },
-              { key: 'activity', label: 'Activity', icon: '🕐' },
+              { key: 'activity', label: 'Activity', icon: '⚖️' },
               { key: 'review', label: 'Review', icon: '🔍', count: activeReviewCount },
               { key: 'team', label: 'Team', icon: '👥' },
               { key: 'audit', label: 'Audit Trail', icon: '🕐' },
@@ -1504,7 +1575,7 @@ export default function LegalWorkSpace() {
                 // ── Shared styles ──
                 const colBorder = '1px solid #EEF0F5';
                 const thStyle = {
-                  textAlign: 'left', padding: '10px 12px',
+                  textAlign: 'center', padding: '10px 12px',
                   fontWeight: 700, color: '#475569', fontSize: 10.5,
                   textTransform: 'uppercase', letterSpacing: '.05em',
                   borderBottom: '1px solid #E2E8F0',
@@ -1527,7 +1598,7 @@ export default function LegalWorkSpace() {
                         display: 'flex', alignItems: 'center', gap: 6,
                         padding: '4px 8px', background: '#fff',
                         border: '1px solid #E2E8F0', borderRadius: 5,
-                        cursor: 'pointer', width: 170, height: 26, boxSizing: 'border-box',
+                        cursor: 'pointer', width: 145, height: 25, boxSizing: 'border-box',
                         transition: 'all .12s',
                       }}
                       onMouseEnter={(e) => {
@@ -1598,13 +1669,13 @@ export default function LegalWorkSpace() {
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                         <thead style={{ position: 'sticky', top: 0, zIndex: 2 }}>
                           <tr>
-                            <th style={{ ...thStyle, width: 40, textAlign: 'center' }}></th>
-                            <th style={{ ...thStyle, minWidth: 140 }}>DIN / Notice</th>
-                            <th style={{ ...thStyle, width: 190 }}>Notice File</th>
-                            <th style={{ ...thStyle, width: 220 }}>Replies</th>
-                            <th style={{ ...thStyle, width: 210 }}>Supporting Docs</th>
-                            <th style={{ ...thStyle, width: 190 }}>Acknowledgment</th>
-                            <th style={{ ...thStyle, width: 60, textAlign: 'center', borderRight: 'none' }}>Files</th>
+                            <th style={{ ...thStyle, width: 32, textAlign: 'center' }}></th>
+                            <th style={{ ...thStyle, width: 130 }}>DIN / Notice</th>
+                            <th style={{ ...thStyle, width: 155 }}>Notice File</th>
+                            <th style={{ ...thStyle, width: 175 }}>Replies</th>
+                            <th style={{ ...thStyle, width: 175 }}>Supporting Docs</th>
+                            <th style={{ ...thStyle, width: 155 }}>Acknowledgment</th>
+                            <th style={{ ...thStyle, width: 48, textAlign: 'center', borderRight: 'none' }}>Files</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1642,24 +1713,24 @@ export default function LegalWorkSpace() {
                               {/* Notice File */}
                               <td style={tdStyle}>
                                 {n.courtNotices.length > 0 ? (
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
                                     {n.courtNotices.map((doc) => (
                                       <FileChip key={`cn-${doc.id}`} doc={doc} icon="📄" />
                                     ))}
                                   </div>
                                 ) : (
-                                  <EmptyCell text="No notice file" />
+                                  <div style={{ textAlign: 'center' }}><EmptyCell text="No notice file" /></div>
                                 )}
                               </td>
 
-                              {/* Replies — Main HTML + Uploaded, chronological, one row each */}
+                              {/* Replies */}
                               <td style={tdStyle}>
                                 {n.versionGroups.length > 0 ? (
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
                                     {n.versionGroups.map((vg) => (
                                       <div
                                         key={`v-${vg.main._isHtml ? 'h' : 'd'}-${vg.main._id}-${vg.v}`}
-                                        style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                                        style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}
                                       >
                                         <VTag v={vg.v} />
                                         <FileChip
@@ -1672,11 +1743,11 @@ export default function LegalWorkSpace() {
                                     ))}
                                   </div>
                                 ) : (
-                                  <EmptyCell text="No replies yet" />
+                                  <div style={{ textAlign: 'center' }}><EmptyCell text="No replies yet" /></div>
                                 )}
                               </td>
 
-                              {/* Supporting Docs — grouped by reply version (isolated per reply, no leakage) */}
+                              {/* Supporting Docs */}
                               <td style={tdStyle}>
                                 {(() => {
                                   const withSupports = n.versionGroups.filter(
@@ -1684,20 +1755,20 @@ export default function LegalWorkSpace() {
                                   );
 
                                   if (withSupports.length === 0) {
-                                    return <EmptyCell text="No supporting docs yet" />;
+                                    return <div style={{ textAlign: 'center' }}><EmptyCell text="No supporting docs yet" /></div>;
                                   }
 
                                   return (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center' }}>
                                       {withSupports.map((vg) => (
                                         <div
                                           key={`sup-group-${vg.main._isHtml ? 'h' : 'd'}-${vg.main._id}-${vg.v}`}
-                                          style={{ display: 'flex', flexDirection: 'column', gap: 4 }}
+                                          style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}
                                         >
                                           {vg.supports.map((s, si) => (
                                             <div
                                               key={`sup-${s.id}`}
-                                              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                                              style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}
                                             >
                                               {si === 0 ? (
                                                 <VTag v={vg.v} />
@@ -1717,13 +1788,13 @@ export default function LegalWorkSpace() {
                               {/* Acknowledgment */}
                               <td style={tdStyle}>
                                 {n.acks.length > 0 ? (
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
                                     {n.acks.map((doc) => (
                                       <FileChip key={`ack-${doc.id}`} doc={doc} icon="✅" />
                                     ))}
                                   </div>
                                 ) : (
-                                  <EmptyCell text="No acknowledgment yet" />
+                                  <div style={{ textAlign: 'center' }}><EmptyCell text="No acknowledgment yet" /></div>
                                 )}
                               </td>
 
@@ -1742,37 +1813,78 @@ export default function LegalWorkSpace() {
                           ))}
 
                           {/* ── CLOSURE ROW ── */}
-                          {closureDocs.length > 0 && (
-                            <tr style={{
-                              background: '#FEF2F2',
-                              borderTop: '2px solid #fecaca',
-                              borderBottom: '1px solid #F1F5F9',
-                            }}>
-                              <td style={{ ...tdStyle, textAlign: 'center', color: '#991b1b', fontWeight: 700 }}>
-                                🔒
-                              </td>
-                              <td style={tdStyle} colSpan={5}>
-                                <div style={{ fontSize: 11.5, fontWeight: 800, color: '#991b1b', marginBottom: 6 }}>
-                                  Case Closure Documents
-                                </div>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                                  {closureDocs.map((doc) => (
-                                    <FileChip key={`cl-${doc.id}`} doc={doc} icon="🔒" />
-                                  ))}
-                                </div>
-                              </td>
-                              <td style={{ ...tdStyle, textAlign: 'center', borderRight: 'none' }}>
-                                <span style={{
-                                  display: 'inline-block',
-                                  padding: '2px 8px', borderRadius: 99,
-                                  background: '#fee2e2', color: '#991b1b',
-                                  fontSize: 10.5, fontWeight: 700,
-                                }}>
-                                  {closureDocs.length}
-                                </span>
-                              </td>
-                            </tr>
-                          )}
+                          {closureDocs.length > 0 && (() => {
+                            const CLOSURE_LABELS = {
+                              order: 'Order Copy',
+                              demand_notice: 'Demand Notice',
+                              computation_sheet: 'Computation Sheet',
+                            };
+                            const orderedTypes = ['order', 'demand_notice', 'computation_sheet'];
+                            const closureMap = {};
+                            closureDocs.forEach(d => { closureMap[d.doc_type] = d; });
+
+                            return (
+                              <tr style={{
+                                background: '#FEF2F2',
+                                borderTop: '2px solid #fecaca',
+                                borderBottom: '1px solid #F1F5F9',
+                              }}>
+                                <td style={{ ...tdStyle, textAlign: 'center', color: '#991b1b', fontWeight: 700 }}>
+                                  🔒
+                                </td>
+                                <td style={tdStyle} colSpan={5}>
+                                  <div style={{ fontSize: 11.5, fontWeight: 800, color: '#991b1b', marginBottom: 8 }}>
+                                    Case Closure Documents
+                                  </div>
+                                  <div style={{
+                                    display: 'flex',
+                                    flexDirection: 'row',
+                                    flexWrap: 'wrap',
+                                    alignItems: 'center',
+                                    gap: 16,
+                                  }}>
+                                    {orderedTypes.map(type => {
+                                      const doc = closureMap[type];
+                                      if (!doc) return null;
+                                      return (
+                                        <div
+                                          key={`cl-${doc.id}`}
+                                          style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 8,
+                                            flexShrink: 0,
+                                          }}
+                                        >
+                                          <span style={{
+                                            fontSize: 10,
+                                            fontWeight: 700,
+                                            color: '#991b1b',
+                                            textTransform: 'uppercase',
+                                            letterSpacing: '.03em',
+                                            whiteSpace: 'nowrap',
+                                          }}>
+                                            {CLOSURE_LABELS[type]}
+                                          </span>
+                                          <FileChip doc={doc} icon="🔒" />
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </td>
+                                <td style={{ ...tdStyle, textAlign: 'center', borderRight: 'none' }}>
+                                  <span style={{
+                                    display: 'inline-block',
+                                    padding: '2px 8px', borderRadius: 99,
+                                    background: '#fee2e2', color: '#991b1b',
+                                    fontSize: 10.5, fontWeight: 700,
+                                  }}>
+                                    {closureDocs.length}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })()}
                         </tbody>
                       </table>
                     </div>
@@ -2086,6 +2198,7 @@ export default function LegalWorkSpace() {
                 litigationType={activityLitigationType}
                 refreshTick={refreshTick}
                 caseData={caseData}
+                onUpdated={bumpRefresh}
               />
             )
           )}

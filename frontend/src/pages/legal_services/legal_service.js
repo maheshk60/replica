@@ -9,46 +9,6 @@ const MUT  = '#7A7F99';
 const BRD  = '#E8EAF0';
 const WH   = '#FFFFFF';
 
-// const items = [
-//   {
-//     label: 'Litigations',
-//     description: 'TDS & Income Tax case management, appeals and dispute tracking',
-//     path: '/legal-services/litigations',
-//     icon: '⚖️',
-//     color: '#1A2F5A',
-//     light: '#EEF3FC',
-//     built: true,
-//   },
-//   {
-//     label: 'MCA',
-//     description: 'Ministry of Corporate Affairs filings and compliance',
-//     path: '/legal-services/mca',
-//     icon: '🏢',
-//     color: '#7C3AED',
-//     light: '#EDE9FE',
-//     built: true,
-//   },
-//   {
-//     label: 'FEMA',
-//     description: 'Foreign Exchange Management Act compliance and filings',
-//     path: '/legal-services/fema',
-//     icon: '🌐',
-//     color: '#0369A1',
-//     light: '#E0F2FE',
-//     built: true,
-//   },
-//   {
-//     label: 'Partnership',
-//     description: 'Partnership deeds, agreements and firm management',
-//     path: '/legal-services/partnership',
-//     icon: '🤝',
-//     color: '#BE185D',
-//     light: '#FCE7F3',
-//     built: true,
-//   },
-// ];
-
-
 
 const items = [
   {
@@ -78,7 +38,7 @@ const items = [
     color: '#0369A1',
     light: '#E0F2FE',
     built: true,
-    comingSoon: true,
+    // comingSoon: true,
   },
   {
     label: 'Partnership',

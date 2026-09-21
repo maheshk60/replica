@@ -343,7 +343,7 @@ export function AcceptModal({ review, onClose, onAccepted, position = 'center', 
                   ↑ Move to CEO instead
                 </div>
                 <div style={{ fontSize: 11, color: T.textSecondary, marginTop: 2, lineHeight: 1.4 }}>
-                  Leave this unchecked to approve normally. Check it to escalate this submission
+                  Leave this unchecked to approve normally. Check it to move this submission
                   for final CEO review instead of applying it now.
                 </div>
               </div>

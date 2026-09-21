@@ -485,6 +485,153 @@ def get_next_task_id_serial_number(date_obj):
         return Task.objects.filter(task_id__startswith=prefix, task_id__endswith=suffix).count() + 1
 
 
+
+# ─────────────────────────────────────────────────────────────
+# Legal status → Task IDs
+# MUST match TaskListSerializer.get_legal_status exactly
+# ─────────────────────────────────────────────────────────────
+def get_task_ids_for_legal_statuses(legal_statuses):
+    """
+    Return Task PKs whose DISPLAYED legal_status is in legal_statuses.
+
+    MCA:
+      MCACase.status  (wip / under_review / open / closed)
+
+    TDS / Income-Tax:
+      computed from CourtCase + notices (same rules as serializer):
+        closed              → CourtCase.status == 'closed'
+        attention_required  → any wip/under_review notice due within 5 days / overdue
+        open                → has notices AND every notice status == 'open'
+        wip                 → everything else (no case, no notices, or pending notices)
+    """
+    from datetime import date, timedelta
+    from django.db.models import Q
+    from legal_services.models import (
+        MCACase, TDSLitigation, IncomeTaxLitigation, CourtCase, CaseNotice,
+    )
+
+    wanted = set(legal_statuses)
+    task_ids = set()
+    today = date.today()
+    threshold = today + timedelta(days=5)
+
+    # ═══════════════════════════════════════════
+    # MCA — status lives on the case row
+    # ═══════════════════════════════════════════
+    mca_wanted = wanted & {'wip', 'under_review', 'open', 'closed'}
+    if mca_wanted:
+        task_ids.update(
+            MCACase.objects.filter(
+                status__in=mca_wanted,
+                task__isnull=False,
+            ).values_list('task_id', flat=True)
+        )
+
+    # ═══════════════════════════════════════════
+    # Litigation helper (TDS + Income-Tax)
+    # ═══════════════════════════════════════════
+    def _litigation_task_ids(lit_type, Model):
+        ids = set()
+
+        # All jobs linked to an STT task
+        job_to_task = dict(
+            Model.objects.filter(task__isnull=False)
+            .values_list('id', 'task_id')
+        )
+        if not job_to_task:
+            return ids
+
+        all_job_ids = set(job_to_task.keys())
+
+        # CourtCases for these jobs
+        cases = CourtCase.objects.filter(
+            litigation_type=lit_type,
+            job_id__in=all_job_ids,
+        )
+        case_job_ids = set(cases.values_list('job_id', flat=True))
+
+        closed_job_ids = set(
+            cases.filter(status='closed').values_list('job_id', flat=True)
+        )
+        active_case_job_ids = case_job_ids - closed_job_ids  # not closed
+
+        # Jobs with at least one notice
+        jobs_with_notices = set(
+            CaseNotice.objects.filter(
+                court_case__litigation_type=lit_type,
+                court_case__job_id__in=active_case_job_ids,
+            ).values_list('court_case__job_id', flat=True)
+        )
+
+        # Jobs that still have any pending notice (wip / under_review)
+        jobs_with_pending = set(
+            CaseNotice.objects.filter(
+                court_case__litigation_type=lit_type,
+                court_case__job_id__in=active_case_job_ids,
+                status__in=['wip', 'under_review'],
+            ).values_list('court_case__job_id', flat=True)
+        )
+
+        # attention_required: pending notice with effective due <= today+5
+        # effective due = extended_due_date OR due_date
+        attn_job_ids = set(
+            CaseNotice.objects.filter(
+                court_case__litigation_type=lit_type,
+                court_case__job_id__in=active_case_job_ids,
+                status__in=['wip', 'under_review'],
+            ).filter(
+                Q(extended_due_date__isnull=False, extended_due_date__lte=threshold)
+                | Q(
+                    extended_due_date__isnull=True,
+                    due_date__isnull=False,
+                    due_date__lte=threshold,
+                )
+            ).values_list('court_case__job_id', flat=True)
+        )
+
+        # OPEN = has notices, ALL notices are open, not closed, not attention
+        # (same as serializer: statuses == {'open'})
+        open_job_ids = jobs_with_notices - jobs_with_pending - closed_job_ids - attn_job_ids
+
+        # WIP =
+        #   - job with no CourtCase yet
+        #   - CourtCase exists but no notices
+        #   - has pending notices but NOT attention_required
+        #   - NOT closed, NOT open
+        no_case_job_ids = all_job_ids - case_job_ids
+        no_notice_job_ids = active_case_job_ids - jobs_with_notices
+        pending_not_attn = jobs_with_pending - attn_job_ids
+        wip_job_ids = (no_case_job_ids | no_notice_job_ids | pending_not_attn) - closed_job_ids - open_job_ids
+
+        # Map job_id → task_id
+        def add(job_ids):
+            for jid in job_ids:
+                tid = job_to_task.get(jid)
+                if tid:
+                    ids.add(tid)
+
+        if 'closed' in wanted:
+            add(closed_job_ids)
+        if 'open' in wanted:
+            add(open_job_ids)
+        if 'attention_required' in wanted:
+            add(attn_job_ids)
+        if 'wip' in wanted:
+            add(wip_job_ids)
+
+        return ids
+
+    lit_wanted = wanted & {'wip', 'open', 'closed', 'attention_required'}
+    if lit_wanted:
+        task_ids.update(_litigation_task_ids('tds', TDSLitigation))
+        task_ids.update(_litigation_task_ids('income-tax', IncomeTaxLitigation))
+
+    return task_ids
+
+
+
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # TASK VIEWSET
 # ══════════════════════════════════════════════════════════════════════════════
@@ -499,14 +646,34 @@ class TaskViewSet(viewsets.ModelViewSet):
             return TaskListSerializer
         return TaskSerializer
 
+
+
+
+
     def _base_qs(self):
+        # return Task.objects.select_related(
+        #     'client', 'sub_service', 'spoc', 'team', 'created_by', 'marked_done_by',
+        # ).prefetch_related(
+        #     Prefetch('assignments', queryset=TaskAssignment.objects.select_related('user').filter(is_active=True)),
+        #     Prefetch('time_entries', queryset=TaskTimeEntry.objects.only('id', 'task_id', 'employee_id', 'start_time', 'end_time')),
+        #     Prefetch('client__client_groups_membership', queryset=ClientGroup.objects.filter(is_active=True)),
+        # ).order_by('-created_at')
+
         return Task.objects.select_related(
             'client', 'sub_service', 'spoc', 'team', 'created_by', 'marked_done_by',
         ).prefetch_related(
             Prefetch('assignments', queryset=TaskAssignment.objects.select_related('user').filter(is_active=True)),
             Prefetch('time_entries', queryset=TaskTimeEntry.objects.only('id', 'task_id', 'employee_id', 'start_time', 'end_time')),
             Prefetch('client__client_groups_membership', queryset=ClientGroup.objects.filter(is_active=True)),
+            'mca_cases',
+            'tds_litigation_jobs',
+            'income_tax_litigation_jobs',
         ).order_by('-created_at')
+
+
+
+
+
 
     def get_queryset(self):
         user  = self.request.user
@@ -533,21 +700,84 @@ class TaskViewSet(viewsets.ModelViewSet):
         if due_before := params.get('due_date_before'):
             base_qs = base_qs.filter(due_date__lte=due_before)
 
-        if status_vals := params.get('status'):
-            statuses        = [s.strip() for s in status_vals.split(',') if s.strip()]
-            db_statuses     = [s for s in statuses if s != 'Over Due']
-            include_overdue = 'Over Due' in statuses
-            today           = timezone.now().date()
 
-            if db_statuses and include_overdue:
-                base_qs = base_qs.filter(
-                    Q(status__in=db_statuses, due_date__gte=today) |
-                    Q(due_date__lt=today, status__in=['To Do', 'In Progress'])
-                )
-            elif db_statuses:
-                base_qs = base_qs.filter(status__in=db_statuses, due_date__gte=today)
-            elif include_overdue:
-                base_qs = base_qs.filter(due_date__lt=today, status__in=['To Do', 'In Progress'])
+
+
+
+
+
+        # if status_vals := params.get('status'):
+        #     statuses        = [s.strip() for s in status_vals.split(',') if s.strip()]
+        #     db_statuses     = [s for s in statuses if s != 'Over Due']
+        #     include_overdue = 'Over Due' in statuses
+        #     today           = timezone.now().date()
+
+        #     if db_statuses and include_overdue:
+        #         base_qs = base_qs.filter(
+        #             Q(status__in=db_statuses, due_date__gte=today) |
+        #             Q(due_date__lt=today, status__in=['To Do', 'In Progress'])
+        #         )
+        #     elif db_statuses:
+        #         base_qs = base_qs.filter(status__in=db_statuses, due_date__gte=today)
+        #     elif include_overdue:
+        #         base_qs = base_qs.filter(due_date__lt=today, status__in=['To Do', 'In Progress'])
+
+
+        # ---------------------------------------------------------
+        # STATUS FILTER
+        # ---------------------------------------------------------
+        if status_vals := params.get('status'):
+            statuses = [s.strip() for s in status_vals.split(',') if s.strip()]
+
+            STT_SET = {'To Do', 'In Progress', 'Done', 'Over Due'}
+            stt_statuses = [s for s in statuses if s in STT_SET]
+            legal_statuses = [s for s in statuses if s not in STT_SET]
+
+            q = Q()
+            today = timezone.now().date()
+
+            # Task IDs that already have ANY legal job
+            from legal_services.models import MCACase, TDSLitigation, IncomeTaxLitigation
+            legal_task_id_set = set()
+            legal_task_id_set.update(
+                MCACase.objects.filter(task__isnull=False).values_list('task_id', flat=True)
+            )
+            legal_task_id_set.update(
+                TDSLitigation.objects.filter(task__isnull=False).values_list('task_id', flat=True)
+            )
+            legal_task_id_set.update(
+                IncomeTaxLitigation.objects.filter(task__isnull=False).values_list('task_id', flat=True)
+            )
+            no_legal_job = ~Q(id__in=list(legal_task_id_set)) if legal_task_id_set else Q()
+
+            # A) Normal STT statuses → only rows with NO legal job
+            if stt_statuses:
+                db_statuses = [s for s in stt_statuses if s != 'Over Due']
+                include_overdue = 'Over Due' in stt_statuses
+                stt_q = Q()
+
+                if db_statuses and include_overdue:
+                    stt_q = (
+                        Q(status__in=db_statuses, due_date__gte=today)
+                        | Q(due_date__lt=today, status__in=['To Do', 'In Progress'])
+                    )
+                elif db_statuses:
+                    stt_q = Q(status__in=db_statuses, due_date__gte=today)
+                elif include_overdue:
+                    stt_q = Q(due_date__lt=today, status__in=['To Do', 'In Progress'])
+
+                q |= (no_legal_job & stt_q)
+
+            # B) Legal statuses → only tasks whose DISPLAYED status matches
+            if legal_statuses:
+                matched_ids = get_task_ids_for_legal_statuses(legal_statuses)
+                q |= Q(id__in=list(matched_ids))
+
+            if stt_statuses or legal_statuses:
+                base_qs = base_qs.filter(q)
+
+
+
 
         if created_by_name := params.get('created_by_name'):
             names = [n.strip() for n in created_by_name.split(',') if n.strip()]

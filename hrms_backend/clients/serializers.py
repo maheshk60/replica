@@ -979,6 +979,8 @@ class TaskListSerializer(serializers.ModelSerializer):
             "has_my_time_entry",
             "time_entry_user_ids",
             "total_hours",
+
+            "legal_status",
         ]
 
     def get_created_by_name(self, obj):
@@ -1034,6 +1036,75 @@ class TaskListSerializer(serializers.ModelSerializer):
                 if diff > 0:
                     total_seconds += diff
         return round(total_seconds / 3600, 2)
+
+
+    # ---------------------------------------------------------
+    # NEW CODE: ADD THIS FUNCTION AT THE VERY BOTTOM OF THE SERIALIZER
+    # ---------------------------------------------------------
+    legal_status = serializers.SerializerMethodField()
+
+    def get_legal_status(self, obj):
+        from datetime import date, timedelta
+        
+        # 1. Check MCA Jobs
+        if hasattr(obj, 'mca_cases') and obj.mca_cases.exists():
+            return obj.mca_cases.first().status
+
+        # 2. Check Litigation Jobs (TDS / Income Tax)
+        lit_job = None
+        lit_type = None
+        
+        if hasattr(obj, 'tds_litigation_jobs') and obj.tds_litigation_jobs.exists():
+            lit_job = obj.tds_litigation_jobs.first()
+            lit_type = 'tds'
+        elif hasattr(obj, 'income_tax_litigation_jobs') and obj.income_tax_litigation_jobs.exists():
+            lit_job = obj.income_tax_litigation_jobs.first()
+            lit_type = 'income-tax'
+
+        if lit_job:
+            try:
+                from django.apps import apps
+                CourtCase = apps.get_model('legal_services', 'CourtCase')
+                
+                case = CourtCase.objects.filter(
+                    client=obj.client, 
+                    litigation_type=lit_type, 
+                    job_id=lit_job.id
+                ).order_by('-created_at').first()
+                
+                if not case: return 'wip'
+                if case.status == 'closed': return 'closed'
+                
+                notices = case.notices.all()
+                if not notices: return 'wip'
+                
+                today = date.today()
+                threshold = today + timedelta(days=5)
+                for n in notices:
+                    if n.status in ('wip', 'under_review'):
+                        due = n.extended_due_date or n.due_date
+                        if due and due <= threshold:
+                            return 'attention_required'
+                            
+                statuses = set(n.status for n in notices)
+                if 'wip' in statuses or 'under_review' in statuses: return 'wip'
+                if statuses == {'open'}: return 'open'
+                return 'wip'
+            except Exception:
+                return getattr(lit_job, 'status', 'wip')
+
+        # 3. Future-Proofing for when you add FEMA and Partnership
+        for relation in ['fema_cases', 'partnership_cases']:
+            if hasattr(obj, relation):
+                related_mgr = getattr(obj, relation)
+                if related_mgr.exists():
+                    return related_mgr.first().status
+
+        # 4. No Legal Job attached yet
+        return None
+
+
+
 
 
 # ══════════════════════════════════════════════════════

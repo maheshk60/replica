@@ -1,39 +1,4 @@
 
-// import LitigationDashboard from '../LitigationDashboard';
-// import { tdsLitigationApi } from '../../../services/api';
-// import TDSCaseModal from './TDSCaseModal';
-
-// export default function TDSDashboard() {
-//   return (
-//     <LitigationDashboard
-//       title="TDS Litigations"
-//       subtitle="Tax Deducted at Source case tracking"
-//       api={tdsLitigationApi}
-//       CaseModal={TDSCaseModal}
-//       caseType="tds-litigations"
-//       breadcrumbs={[
-//         { label: 'Litigations', path: '/legal-services/litigations' },
-//       ]}
-//       clientPath={(c) => `/legal-services/clients/${c.client}`}
-//       jobListPath="/legal-services/litigations/tds/jobs"
-//     />
-//   );
-// }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import LitigationDashboard from '../LitigationDashboard';
 import { api } from '../../../services/api';
 import TDSCaseModal from './TDSCaseModal';

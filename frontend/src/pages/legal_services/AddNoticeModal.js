@@ -29,6 +29,9 @@ const OFFICER_OPTIONS = [
   'CIT (Exemptions)',
   'High Court',
   'Supreme Court',
+  'National Faceless Appeal Centre',
+  'Assessment Unit',
+  'Income Tax Appellate Tribunal',
 ].sort();
 
 const C = {
@@ -54,7 +57,7 @@ const REVIEW_META = {
   pending:   { label: 'Under Review',  color: C.amber, bg: C.amberBg, border: C.amberBorder },
   approved:  { label: 'Approved',      color: C.green, bg: C.greenBg, border: C.greenBorder },
   rejected:  { label: 'Rejected',      color: C.red,   bg: C.redBg,   border: C.redBorder },
-  escalated: { label: 'Escalated',     color: C.purple,bg: C.purpleBg,border: C.purpleBorder },
+  escalated: { label: 'Move to CEO',     color: C.purple,bg: C.purpleBg,border: C.purpleBorder },
 };
 
 const CLOSURE_DOC_META = {
@@ -67,7 +70,7 @@ const CLOSURE_STATUS_META = {
   not_started: { label: 'Not Started', color: C.slate,  bg: C.bg,       border: C.border,       icon: '○' },
   draft:       { label: 'Draft',       color: C.slate,  bg: C.bg,       border: C.border,       icon: '📝' },
   pending:     { label: 'Under Review',color: C.amber,  bg: C.amberBg,  border: C.amberBorder,  icon: '⏳' },
-  escalated:   { label: 'Escalated',   color: C.purple, bg: C.purpleBg, border: C.purpleBorder, icon: '↑' },
+  escalated:   { label: 'Move to CEO',   color: C.purple, bg: C.purpleBg, border: C.purpleBorder, icon: '↑' },
   rejected:    { label: 'Rejected',    color: C.red,    bg: C.redBg,    border: C.redBorder,    icon: '✕' },
   approved:    { label: 'Approved',    color: C.green,  bg: C.greenBg,  border: C.greenBorder,  icon: '✓' },
 };
@@ -760,7 +763,7 @@ export function CloseCaseModal({ courtCaseId, canEdit, onClose, onUpdated }) {
             <div style={{ padding: '12px 14px', marginBottom: 14, background: C.purpleBg, border: `1px solid ${C.purpleBorder}`, borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
               <span style={{ fontSize: 18 }}>↑</span>
               <div>
-                <div style={{ fontSize: 12.5, fontWeight: 700, color: C.purple }}>Escalated to CEO</div>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: C.purple }}>Moved to CEO</div>
                 <div style={{ fontSize: 11, color: C.slate, marginTop: 2 }}>Waiting for CEO's final decision.</div>
               </div>
             </div>

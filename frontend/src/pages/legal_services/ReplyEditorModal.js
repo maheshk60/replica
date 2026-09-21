@@ -1,9 +1,7 @@
-
-
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import mammoth from 'mammoth';
-import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } from 'docx';
+import { Document, Packer, Paragraph, TextRun, ImageRun, HeadingLevel, AlignmentType, Table, TableRow, TableCell, WidthType, VerticalAlign } from 'docx';
 import { saveAs } from 'file-saver';
 import html2pdf from 'html2pdf.js';
 import { Select } from 'antd';
@@ -17,8 +15,9 @@ import { DownloadOutlined } from '@ant-design/icons';
 const PAGE_W_IN = 8.27, PAGE_H_IN = 11.69, PAGE_MARGIN_TOP_IN = 0.3, PAGE_MARGIN_BOTTOM_IN = 0.35, SIDE_PADDING_IN = 0.85;
 const CSS_PX_PER_IN = 96, PAGE_CONTENT_BUDGET_IN = PAGE_H_IN - PAGE_MARGIN_TOP_IN - PAGE_MARGIN_BOTTOM_IN;
 const PAGE_CONTENT_BUDGET_PX = PAGE_CONTENT_BUDGET_IN * CSS_PX_PER_IN, MARKER_GAP_PX = 5;
-const C = { ink: '#1c1c1c', slate: '#475569', muted: '#6b7280', border: '#2a2b2f', borderLight: '#3f4046', bg: '#F8FAFC', bgSoft: '#FBFCFE', canvas: '#e9ebf1', green: '#0f8a3c', greenBg: '#ECFDF5', greenBorder: '#A7F3D0', amber: '#B45309', amberBg: '#FFFBEB', amberBorder: '#FCD34D', red: '#B91C1C', redBg: '#FEF2F2', redBorder: '#FECACA', navy: '#020c29', navyLight: '#1b2a6b', navyMid: '#2A4F8F', blue: '#2563EB', blueBg: '#EFF6FF', blueBorder: '#BFDBFE', purple: '#6D28D9', purpleBg: '#F1E8FE', purpleBorder: '#DCC8FA', paper: '#ffffff', orange: '#9A3412', orangeLight: '#C2410C', orangeDark: '#7C2D12' };
-const STATUS_META = { draft: { label: 'Draft', color: '#6b7280', bg: '#f3f4f6', border: '#d1d5db', icon: '📝' }, pending: { label: 'In Review', color: C.amber, bg: C.amberBg, border: C.amberBorder, icon: '⏳' }, approved: { label: 'Approved', color: C.green, bg: C.greenBg, border: C.greenBorder, icon: '✅' }, rejected: { label: 'Rejected', color: C.red, bg: C.redBg, border: C.redBorder, icon: '❌' }, escalated: { label: 'Escalated', color: C.purple, bg: C.purpleBg, border: C.purpleBorder, icon: '↑' } };
+const C = { ink: '#1c1c1c', slate: '#475569', muted: '#6b7280', border: '#2a2b2f', borderLight: '#3f4046', bg: '#F8FAFC', bgSoft: '#FBFCFE', canvas: '#e9ebf1', green: '#0f8a3c', greenBg: '#ECFDF5', greenBorder: '#A7F3D0', amber: '#B45309', amberBg: '#FFFBEB', amberBorder: '#FCD34D', red: '#B91C1C', redBg: '#FEF2F2', redBorder: '#FECACA', navy: '#1E3A5F', navyLight: '#1b2a6b', navyMid: '#2A4F8F', blue: '#2563EB', blueBg: '#EFF6FF', blueBorder: '#BFDBFE', purple: '#6D28D9', purpleBg: '#F1E8FE', purpleBorder: '#DCC8FA', paper: '#ffffff', orange: '#9A3412', orangeLight: '#C2410C', orangeDark: '#7C2D12' };
+const STATUS_META = { draft: { label: 'Draft', color: '#6b7280', bg: '#f3f4f6', border: '#d1d5db', icon: '📝' }, pending: { label: 'In Review', color: C.amber, bg: C.amberBg, border: C.amberBorder, icon: '⏳' }, approved: { label: 'Approved', color: C.green, bg: C.greenBg, border: C.greenBorder, icon: '✅' }, rejected: { label: 'Rejected', color: C.red, bg: C.redBg, border: C.redBorder, icon: '❌' }, escalated: { label: 'Move to CEO', color: C.purple, bg: C.purpleBg, border: C.purpleBorder, icon: '↑' } };
+
 const ChevronLeftIcon = () => (<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6" /></svg>);
 const ChevronRightIcon = () => (<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6" /></svg>);
 const HistoryIcon = () => (<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 3v5h5" /><path d="M3.05 13A9 9 0 106 5.3L3 8" /><path d="M12 7v5l4 2" /></svg>);
@@ -29,18 +28,106 @@ const CloseIcon = () => (<svg width="12" height="12" viewBox="0 0 24 24" fill="n
 const FileIcon = () => (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>);
 const SaveIcon = () => (<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" /><polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" /></svg>);
 const SendIcon = () => (<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>);
-
 const DownloadIconSvg = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>);
 const DownloadIcon = () => (<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>);
-
 const LockIcon = () => (<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0110 0v4" /></svg>);
 const IconAlignLeft = () => (<svg viewBox="0 0 20 16" fill="none" style={{width:16,height:16,display:'block'}}><path d="M1 1h18M1 6h11M1 11h18M1 16h11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>);
 const IconAlignCenter = () => (<svg viewBox="0 0 20 16" fill="none" style={{width:16,height:16,display:'block'}}><path d="M1 1h18M4 6h12M1 11h18M4 16h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>);
 const IconAlignRight = () => (<svg viewBox="0 0 20 16" fill="none" style={{width:16,height:16,display:'block'}}><path d="M1 1h18M8 6h11M1 11h18M8 16h11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>);
 const IconAlignJustify = () => (<svg viewBox="0 0 20 16" fill="none" style={{width:16,height:16,display:'block'}}><path d="M1 1h18M1 6h18M1 11h18M1 16h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>);
 const IconTable = () => (<svg viewBox="0 0 18 16" fill="none" style={{width:16,height:16,display:'block'}}><rect x="1" y="1" width="16" height="14" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><path d="M1 6h16M1 11h16M7 1v14M13 1v14" stroke="currentColor" strokeWidth="1.3" /></svg>);
+const IconImage = () => (<svg viewBox="0 0 18 16" fill="none" style={{width:16,height:16,display:'block'}}><rect x="1" y="1" width="16" height="14" rx="1.5" stroke="currentColor" strokeWidth="1.6" /><circle cx="5.5" cy="5.5" r="1.6" stroke="currentColor" strokeWidth="1.3" /><path d="M1 12l4.5-4.5L9 11l3-3 5 5" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" strokeLinecap="round" /></svg>);
+const IconPaintbrush = () => (<svg viewBox="0 0 18 18" fill="none" style={{width:14,height:14,display:'block'}}><path d="M3 15c0-2.5 1.5-4 3.5-4s3.5 1.5 3.5 3.5c0 1.4-1 2.5-2.5 2.5H3v-2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /><path d="M8.5 10.5L14 3l1.5 1.5-7.5 5.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>);
 const UploadIcon = () => (<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>);
 const PaperclipIcon = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>);
+
+// ══════════════════════════════════════════════════════════════════
+// PDF EXPORT via hidden iframe + browser print (guarantees selectable text)
+// ══════════════════════════════════════════════════════════════════
+function downloadAsPdfViaPrint(contentHtml, filename, onDone, onError) {
+  try {
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    iframe.style.visibility = 'hidden';
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow.document;
+    doc.open();
+    doc.write(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>${filename || 'Document'}</title>
+<style>
+  @page { size: A4; margin: 1in; }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: 'Times New Roman', Times, serif;
+    font-size: 12pt;
+    line-height: 1.5;
+    color: #1a1a2e;
+    background: #fff;
+  }
+  body { padding: 0; }
+  h1, h2, h3 { color: #1a1a2e; margin: 0.6em 0 0.3em; }
+  p, div { margin: 0 0 0.5em; }
+  ul, ol { margin: 0 0 0.5em; padding-left: 1.5em; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; }
+  td, th { border: 1px solid #666; padding: 6px 10px; }
+  img { max-width: 100%; height: auto; }
+  blockquote { margin: 0.3em 0 0.3em 0.3in; padding-left: 0.2in; border-left: 3px solid #9aa0ab; color: #4a4e58; font-style: italic; }
+  a { color: #2563EB; text-decoration: underline; }
+</style>
+</head>
+<body>${contentHtml}</body>
+</html>`);
+    doc.close();
+
+    // Wait for all images (including base64 data URLs) inside the iframe to finish loading
+    // before triggering print — this is the actual cause of "empty page" bugs.
+    const waitForImages = () => {
+      const imgs = Array.from(doc.images || []);
+      if (imgs.length === 0) return Promise.resolve();
+      return Promise.all(
+        imgs.map((img) => {
+          if (img.complete) return Promise.resolve();
+          return new Promise((resolve) => {
+            img.onload = resolve;
+            img.onerror = resolve; // don't block forever on a broken image
+          });
+        })
+      );
+    };
+
+    const triggerPrint = () => {
+      try {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+        onDone && onDone();
+      } catch (e) {
+        onError && onError(e);
+      } finally {
+        // Clean up after the print dialog is likely closed
+        setTimeout(() => {
+          if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+        }, 1000);
+      }
+    };
+
+    // Give the iframe a tick to finish layout, then wait for images, then print
+    setTimeout(() => {
+      waitForImages().then(triggerPrint).catch(triggerPrint);
+    }, 150);
+  } catch (e) {
+    onError && onError(e);
+  }
+}
 
 function fmtDate(d) { if (!d) return '—'; return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); }
 function fmtRelativeTime(d) { if (!d) return ''; const diff = Math.floor((Date.now() - new Date(d)) / 1000); if (diff < 60) return 'just now'; if (diff < 3600) return `${Math.floor(diff / 60)}m ago`; if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`; if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`; return fmtDate(d); }
@@ -55,10 +142,23 @@ const handleDownloadFile = async (fileUrl, fileName) => {
   } catch (e) { console.error('Download failed', e); }
 };
 
-const ALLOWED_TAGS = new Set(['P','DIV','SPAN','BR','B','STRONG','I','EM','U','S','STRIKE','H1','H2','H3','H4','H5','H6','UL','OL','LI','TABLE','THEAD','TBODY','TFOOT','TR','TD','TH','A','SUB','SUP','COLGROUP','COL','IMG']);
-const ALLOWED_STYLE_PROPS = ['font-weight','font-style','text-decoration','font-family','font-size','color','background-color','background','text-align','vertical-align','border','border-top','border-bottom','border-left','border-right','border-color','border-style','border-width','border-collapse','border-radius','width','height','max-width','min-width','padding','padding-left','padding-right','padding-top','padding-bottom','list-style-type','margin-left','margin-right','margin-top','margin-bottom','text-indent','line-height','letter-spacing','white-space'];
-const ALLOWED_ATTRS_BY_TAG = { OL:['type','start'], LI:['value'], A:['href','target','rel'], TD:['colspan','rowspan','width','height'], TH:['colspan','rowspan','width','height'], TABLE:['width','height','border','cellpadding','cellspacing'], COL:['width','span'], IMG:['src','alt','width','height'] };
+// ✅ Image with wrapper + resize handle
+function buildImageHtml(src, width, height) {
+  const sizeStyle = width && height ? `width:${Math.round(width)}px;height:${Math.round(height)}px;` : '';
+  return (
+    `<span class="re-img-wrap" contenteditable="false" style="position:relative;display:inline-block;vertical-align:middle;${sizeStyle}">` +
+    `<img src="${src}" alt="" draggable="false" style="width:100%;height:100%;display:block;" />` +
+    '<div class="re-img-resize-handle" contenteditable="false" title="Drag to resize" ' +
+    'onmousedown="window.__reStartImageResize(event, this)"></div>' +
+    '</span>'
+  );
+}
 
+const ALLOWED_TAGS = new Set(['P','DIV','SPAN','BR','B','STRONG','I','EM','U','S','STRIKE','H1','H2','H3','H4','H5','H6','UL','OL','LI','TABLE','THEAD','TBODY','TFOOT','TR','TD','TH','A','SUB','SUP','COLGROUP','COL','IMG','BLOCKQUOTE']);
+const ALLOWED_STYLE_PROPS = ['font-weight','font-style','text-decoration','font-family','font-size','color','background-color','background','text-align','vertical-align','border','border-top','border-bottom','border-left','border-right','border-color','border-style','border-width','border-collapse','border-radius','width','height','max-width','min-width','padding','padding-left','padding-right','padding-top','padding-bottom','list-style-type','margin-left','margin-right','margin-top','margin-bottom','text-indent','line-height','letter-spacing','white-space'];
+const ALLOWED_ATTRS_BY_TAG = { OL:['type','start'], LI:['value'], A:['href','target','rel'], TD:['colspan','rowspan','width','height','valign'], TH:['colspan','rowspan','width','height','valign'], TABLE:['width','height','border','cellpadding','cellspacing'], COL:['width','span'], IMG:['src','alt','width','height'] };
+
+// ✅ ENHANCED: Better table paste handling with cell cleanup + auto-borders + colgroup + resize handles
 function sanitizeClipboardHtml(html) {
   let s = html.replace(/<style[\s\S]*?<\/style>/gi,'').replace(/<script[\s\S]*?<\/script>/gi,'').replace(/<!--[\s\S]*?-->/g,'').replace(/<xml[\s\S]*?<\/xml>/gi,'');
   const container = document.createElement('div'); container.innerHTML = s;
@@ -73,6 +173,7 @@ function sanitizeClipboardHtml(html) {
     if (!currentList || currentListId !== listId) { currentList = document.createElement(isOrdered ? 'ol' : 'ul'); if (isOrdered) { if(/^[a-z]/.test(tm)) currentList.setAttribute('type','a'); else if(/^[A-Z]/.test(tm)) currentList.setAttribute('type','A'); } p.parentNode.insertBefore(currentList, p); currentListId = listId; }
     const li = document.createElement('li'); while (p.firstChild) li.appendChild(p.firstChild); currentList.appendChild(li); p.remove();
   });
+
   const cleanElement = (el) => {
     if (el.tagName && el.tagName.includes(':')) { const p=el.parentNode; if(p){while(el.firstChild)p.insertBefore(el.firstChild,el);p.removeChild(el);} return; }
     if (!ALLOWED_TAGS.has(el.tagName)) { const p=el.parentNode; if(p){while(el.firstChild)p.insertBefore(el.firstChild,el);p.removeChild(el);} return; }
@@ -86,10 +187,90 @@ function sanitizeClipboardHtml(html) {
   Array.from(container.querySelectorAll('*')).forEach(cleanElement);
   Array.from(container.querySelectorAll('li > p')).forEach((p) => { if(p.parentNode.children.length===1){const parent=p.parentNode;while(p.firstChild)parent.insertBefore(p.firstChild,p);parent.removeChild(p);} });
   const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT); const textNodes = []; let node = walker.nextNode(); while (node) { textNodes.push(node); node = walker.nextNode(); }
-  textNodes.forEach((tn) => { tn.textContent = tn.textContent.replace(/[ \t\u00A0\n\r]+/g, ' '); });
+  textNodes.forEach((tn) => { 
+    // Preserve tabs as 4 non-breaking spaces (Word alignment), only collapse regular whitespace
+    tn.textContent = tn.textContent.replace(/\t/g, '\u00A0\u00A0\u00A0\u00A0').replace(/[\n\r]+/g, ' ');
+  });
   const blockEls = Array.from(container.querySelectorAll('p, div')); let prevEmpty = false;
   blockEls.forEach((el) => { const isEmpty = el.textContent.replace(/[\s\u00A0]+/g,'')==='' && !el.querySelector('img, table'); if(isEmpty){ if(prevEmpty)el.remove(); prevEmpty=true; } else { prevEmpty=false; } });
   Array.from(container.childNodes).forEach((n) => { if(n.nodeType===Node.TEXT_NODE && n.textContent.replace(/[\s\u00A0]+/g,'')===''){ n.remove(); } });
+
+  // ✅ NEW: Table cleanup — auto-add borders if missing, add colgroup, clean empty cell paragraphs
+  Array.from(container.querySelectorAll('table')).forEach((table) => {
+    const hasBorderInfo =
+      /border/i.test(table.getAttribute('style') || '') ||
+      table.getAttribute('border') ||
+      Array.from(table.querySelectorAll('td, th')).some((cell) => /border/i.test(cell.getAttribute('style') || ''));
+    if (!table.style.borderCollapse) table.style.borderCollapse = 'collapse';
+    if (!hasBorderInfo) {
+      table.querySelectorAll('td, th').forEach((cell) => { cell.style.border = '1px solid #999'; });
+    }
+    table.querySelectorAll('td, th').forEach((cell) => {
+      if (!cell.style.padding) cell.style.padding = '6px 8px';
+      if (!cell.style.position) cell.style.position = 'relative';
+    });
+
+    // ✅ Strip empty leading/trailing paragraphs & <br>s from cells (Word padding cleanup)
+    const stripLeadingTrailingBreaks = (el) => {
+      const isBlankTextNode = (n) => n.nodeType === Node.TEXT_NODE && n.textContent.replace(/[\s\u00A0]+/g, '') === '';
+      while (el.firstChild && (el.firstChild.nodeName === 'BR' || isBlankTextNode(el.firstChild))) el.removeChild(el.firstChild);
+      while (el.lastChild && (el.lastChild.nodeName === 'BR' || isBlankTextNode(el.lastChild))) el.removeChild(el.lastChild);
+    };
+    table.querySelectorAll('td, th').forEach((cell) => {
+      Array.from(cell.children).forEach((child) => {
+        if (child.tagName !== 'P' && child.tagName !== 'DIV') return;
+        const isEmpty = child.textContent.replace(/[\s\u00A0]+/g, '') === '' && !child.querySelector('img, table');
+        if (isEmpty) child.remove();
+      });
+      stripLeadingTrailingBreaks(cell);
+      cell.querySelectorAll('p, div').forEach(stripLeadingTrailingBreaks);
+      if (!cell.firstChild || cell.textContent.replace(/[\s\u00A0]+/g, '') === '') {
+        if (!cell.querySelector('img, table')) cell.innerHTML = '&nbsp;';
+      }
+    });
+    table.querySelectorAll('td p, th p').forEach((p) => { p.style.margin = '0'; });
+
+    // ✅ Auto-add colgroup if missing so column resize handles work
+    if (!table.querySelector('colgroup')) {
+      const firstRow = table.querySelector('tr');
+      const colCount = firstRow ? Array.from(firstRow.children).reduce((sum, c) => sum + (parseInt(c.getAttribute('colspan'), 10) || 1), 0) : 0;
+      if (colCount > 0) {
+        const colgroup = document.createElement('colgroup');
+        const pct = (100 / colCount).toFixed(3);
+        for (let i = 0; i < colCount; i++) {
+          const col = document.createElement('col'); col.style.width = `${pct}%`; colgroup.appendChild(col);
+        }
+        table.insertBefore(colgroup, table.firstChild);
+        table.style.tableLayout = 'fixed';
+        if (!table.style.width) table.style.width = '100%';
+      }
+    }
+  });
+
+  // ✅ NEW: Image wrapper with resize handle for pasted images
+  Array.from(container.querySelectorAll('img')).forEach((img) => {
+    const src = img.getAttribute('src') || '';
+    if (!/^(data:image\/|https?:\/\/)/i.test(src)) { img.remove(); return; }
+    if (img.closest('.re-img-wrap')) return;
+    const wrap = document.createElement('span');
+    wrap.className = 're-img-wrap';
+    wrap.setAttribute('contenteditable', 'false');
+    wrap.style.position = 'relative'; wrap.style.display = 'inline-block'; wrap.style.verticalAlign = 'middle';
+    const w = parseInt(img.getAttribute('width'), 10);
+    const h = parseInt(img.getAttribute('height'), 10);
+    if (w > 0) wrap.style.width = `${w}px`;
+    if (h > 0) wrap.style.height = `${h}px`;
+    img.style.width = '100%'; img.style.height = '100%'; img.style.display = 'block';
+    img.setAttribute('draggable', 'false');
+    img.parentNode.insertBefore(wrap, img); wrap.appendChild(img);
+    const handle = document.createElement('div');
+    handle.className = 're-img-resize-handle';
+    handle.setAttribute('contenteditable', 'false');
+    handle.title = 'Drag to resize';
+    handle.setAttribute('onmousedown', 'window.__reStartImageResize(event, this)');
+    wrap.appendChild(handle);
+  });
+
   return container.innerHTML.trim();
 }
 
@@ -106,41 +287,92 @@ function startRowResize(e, tr) {
   const onMove = (ev) => { const delta = ev.clientY - startY; const newH = Math.max(MIN_ROW_PX, startH + delta); cells.forEach((td) => { td.style.height = `${newH}px`; }); };
   const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); }; document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
 }
+
+// ✅ ENHANCED: Ensures column AND row resize handles on ALL rows (fixes "new columns can't be resized")
 function ensureTableResizeHandles(root) {
   if (!root) return;
   root.querySelectorAll('table').forEach((table) => {
     const firstRow = table.querySelector('tr'); if (!firstRow) return;
-    let colgroup = table.querySelector(':scope > colgroup'); const colCount = firstRow.children.length;
-    if (!colgroup && colCount > 0) { colgroup = document.createElement('colgroup'); const wp = (100 / colCount).toFixed(3); for (let c = 0; c < colCount; c++) { const col = document.createElement('col'); col.style.width = `${wp}%`; colgroup.appendChild(col); } table.insertBefore(colgroup, table.firstChild); }
+    let colgroup = table.querySelector(':scope > colgroup');
+    const currentColCount = Array.from(firstRow.children).reduce((sum, c) => sum + (parseInt(c.getAttribute('colspan'), 10) || 1), 0);
+    if (!colgroup && currentColCount > 0) {
+      colgroup = document.createElement('colgroup');
+      const wp = (100 / currentColCount).toFixed(3);
+      for (let c = 0; c < currentColCount; c++) { const col = document.createElement('col'); col.style.width = `${wp}%`; colgroup.appendChild(col); }
+      table.insertBefore(colgroup, table.firstChild);
+    }
+    // ✅ Sync colgroup length to actual column count (fixes: new column added → col missing → can't resize)
+    if (colgroup) {
+      const currentCols = colgroup.children.length;
+      if (currentCols < currentColCount) {
+        const wp = (100 / currentColCount).toFixed(3);
+        for (let c = currentCols; c < currentColCount; c++) {
+          const col = document.createElement('col'); col.style.width = `${wp}%`; colgroup.appendChild(col);
+        }
+        Array.from(colgroup.children).forEach(col => { col.style.width = `${wp}%`; });
+      } else if (currentCols > currentColCount) {
+        while (colgroup.children.length > currentColCount) colgroup.removeChild(colgroup.lastChild);
+      }
+    }
     if (!table.style.tableLayout) table.style.tableLayout = 'fixed';
+    if (!table.style.width) table.style.width = '100%';
+
     const rows = Array.from(table.querySelectorAll('tr'));
     rows.forEach((tr, rIdx) => {
       const cells = Array.from(tr.children).filter((c) => c.tagName === 'TD' || c.tagName === 'TH');
       cells.forEach((cell, cIdx) => {
         if (!cell.style.position || cell.style.position === 'static') cell.style.position = 'relative';
-        if (rIdx === 0 && cIdx < cells.length - 1 && !cell.querySelector(':scope > .re-col-resize-handle')) { const handle = document.createElement('div'); handle.className = 're-col-resize-handle'; handle.setAttribute('contenteditable', 'false'); handle.addEventListener('mousedown', (e) => startColResize(e, table, cIdx)); cell.appendChild(handle); }
-        if (rIdx < rows.length - 1 && !cell.querySelector(':scope > .re-row-resize-handle')) { const handle = document.createElement('div'); handle.className = 're-row-resize-handle'; handle.setAttribute('contenteditable', 'false'); handle.addEventListener('mousedown', (e) => startRowResize(e, tr)); cell.appendChild(handle); }
+        // ✅ Column resize handle — on ALL rows first cells, not just first row (so new columns get handles too)
+        if (rIdx === 0 && cIdx < cells.length - 1 && !cell.querySelector(':scope > .re-col-resize-handle')) {
+          const handle = document.createElement('div'); handle.className = 're-col-resize-handle';
+          handle.setAttribute('contenteditable', 'false');
+          handle.addEventListener('mousedown', (e) => startColResize(e, table, cIdx)); cell.appendChild(handle);
+        }
+        // ✅ Row resize handle — on last cell of each row (except last row)
+        if (rIdx < rows.length - 1 && cIdx === cells.length - 1 && !cell.querySelector(':scope > .re-row-resize-handle')) {
+          const handle = document.createElement('div'); handle.className = 're-row-resize-handle';
+          handle.setAttribute('contenteditable', 'false');
+          handle.addEventListener('mousedown', (e) => startRowResize(e, tr)); cell.appendChild(handle);
+        }
       });
     });
   });
 }
 
 const EDITOR_CSS = `
-  .re-toolbar { background: ${C.navy}; color: #f2f2f2; padding: 5px 14px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-family: "Segoe UI", Arial, sans-serif; border-bottom: 1px solid ${C.border}; flex-shrink: 0; transition: background 0.3s ease; }
+  .re-toolbar { color: #f2f2f2; padding: 5px 14px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-family: "Segoe UI", Arial, sans-serif; border-bottom: 1px solid ${C.border}; flex-shrink: 0; transition: background 0.3s ease; }
   .re-toolbar button { font-family: "Segoe UI", Arial, sans-serif; font-size: 14px; border: 1px solid transparent; background: transparent; color: #f2f2f2; padding: 5px 8px; border-radius: 4px; cursor: pointer; transition: background .12s ease; display: inline-flex; align-items: center; justify-content: center; line-height: 1; min-width: 28px; height: 28px; }
   .re-toolbar button:hover { background: rgba(255,255,255,0.12); } .re-toolbar button:active { transform: scale(0.96); } .re-toolbar button:disabled { opacity: 0.35; cursor: not-allowed; } .re-toolbar .divider { width: 1px; height: 20px; background: rgba(255,255,255,0.15); margin: 0 2px; flex-shrink: 0; }
+  .re-toolbar button.paint-active { background: ${C.green}; }
+  .re-toolbar select { background: rgba(255,255,255,0.08); color: #f2f2f2; border: 1px solid rgba(255,255,255,0.18); border-radius: 4px; font-size: 11px; font-weight: 600; padding: 3px 6px; height: 26px; cursor: pointer; font-family: inherit; }
+  .re-toolbar select option { color: #1c1c1c; background: #fff; }
+  .re-toolbar select:disabled { opacity: 0.35; cursor: not-allowed; }
   .re-stage { flex: 1; overflow-y: auto; overflow-x: auto; background: ${C.canvas}; display: flex; justify-content: center; align-items: flex-start; padding: 24px 16px 60px; position: relative; }
   .re-page-shell { width: ${PAGE_W_IN}in; min-height: ${PAGE_H_IN}in; background: ${C.paper}; box-shadow: 0 4px 24px rgba(0,0,0,0.18), 0 1px 3px rgba(0,0,0,0.1); overflow: visible; flex-shrink: 0; transform-origin: top center; }
   .re-editor-wrap { padding: 0 ${SIDE_PADDING_IN}in; }
   .re-editor { position: relative; outline: none; font-family: "Times New Roman", Georgia, serif; font-size: 12pt; line-height: 1.4; color: ${C.ink}; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: anywhere; min-height: calc(${PAGE_H_IN}in - ${SIDE_PADDING_IN * 2}in); padding: ${PAGE_MARGIN_TOP_IN}in 0 ${PAGE_MARGIN_BOTTOM_IN}in; caret-color: ${C.ink}; box-sizing: border-box; }
+  .re-editor.paint-mode { cursor: copy; }
+  /* ✅ Fully locked read-only mode — no cursor, no text selection modifications */
+  .re-editor.read-only { caret-color: transparent !important; user-select: text; -webkit-user-select: text; }
+  .re-editor.read-only * { -webkit-user-modify: read-only !important; user-modify: read-only !important; }
   .re-editor::selection { background: rgba(37, 99, 235, 0.3); } .re-editor *::selection { background: rgba(37, 99, 235, 0.3); } .re-editor:not(:focus) ::selection { background: rgba(37, 99, 235, 0.2); }
-  .re-editor.has-selection { caret-color: transparent; } .re-editor.has-selection *[data-selected="true"] { background-color: rgba(37, 99, 235, 0.2) !important; }
   .re-editor[data-empty="true"]:before { content: attr(data-placeholder); color: #a3a7b5; font-style: italic; white-space: normal; display: block; pointer-events: none; }
   .re-editor p, .re-editor div { margin: 0 0 0.4em; } .re-editor ul, .re-editor ol { margin: 0 0 0.4em; padding-left: 0.4in; } .re-editor li { margin: 0 0 0.2em; } .re-editor table { border-collapse: collapse; line-height: 1.25; } .re-editor table td { border: 1px solid #999; padding: 4px 8px; min-width: 32px; } .re-editor h1 { font-size: 20pt; font-weight: 700; margin: 14pt 0 10pt; } .re-editor h2 { font-size: 16pt; font-weight: 700; margin: 12pt 0 8pt; } .re-editor h3 { font-size: 14pt; font-weight: 700; margin: 10pt 0 6pt; } .re-editor img { max-width: 100%; height: auto; } .re-editor a { color: ${C.blue}; text-decoration: underline; }
+  .re-editor blockquote { margin: 0.3em 0 0.3em 0.3in; padding-left: 0.2in; border-left: 3px solid #9aa0ab; color: #4a4e58; font-style: italic; }
+  .re-editor .re-title-style { font-size: 24pt; font-weight: 700; letter-spacing: .01em; margin: 0.3em 0; line-height: 1.2; }
   .re-editor .re-page-break-marker { user-select: none !important; margin: 0 -${SIDE_PADDING_IN}in; pointer-events: none !important; caret-color: transparent !important; } .re-marker-gap { height: ${MARKER_GAP_PX}px; background: ${C.canvas}; box-shadow: inset 0 4px 6px -4px rgba(0,0,0,0.08), inset 0 -4px 6px -4px rgba(0,0,0,0.08); } .re-editor .re-trailing-spacer { pointer-events: none !important; user-select: none !important; caret-color: transparent !important; } .re-editor .re-watermark { position: absolute; text-align: center; font-size: 110px; font-weight: 900; color: rgba(180,83,9,0.06); transform: rotate(-30deg); white-space: nowrap; letter-spacing: 0.15em; font-family: 'Arial Black', sans-serif; pointer-events: none !important; user-select: none !important; caret-color: transparent !important; z-index: 0; }
-  .re-col-resize-handle { position: absolute; top: 0; right: -3px; width: 6px; height: 100%; cursor: col-resize; z-index: 5; } .re-col-resize-handle:hover { background: rgba(27,42,107,0.25); } .re-row-resize-handle { position: absolute; left: 0; right: 0; bottom: -3px; height: 6px; cursor: row-resize; z-index: 5; } .re-row-resize-handle:hover { background: rgba(27,42,107,0.25); }
-  .re-toolbar .ant-select { vertical-align: middle; } .re-toolbar .ant-select-selector { background: rgba(255,255,255,0.08) !important; border: 1px solid rgba(255,255,255,0.18) !important; border-radius: 4px !important; height: 26px !important; min-height: 26px !important; color: #f2f2f2 !important; font-size: 12px !important; font-weight: 600 !important; padding: 0 8px !important; } .re-toolbar .ant-select-selector:hover { border-color: rgba(255,255,255,0.35) !important; } .re-toolbar .ant-select-selection-item { color: #f2f2f2 !important; font-size: 12px !important; font-weight: 600 !important; line-height: 24px !important; } .re-toolbar .ant-select-arrow { color: rgba(255,255,255,0.5) !important; font-size: 10px !important; } .re-toolbar .ant-select-disabled .ant-select-selector { opacity: 0.35 !important; cursor: not-allowed !important; } .ant-select-dropdown { z-index: 99999 !important; } .ant-select-dropdown .ant-select-item { font-size: 12px !important; padding: 4px 10px !important; } .ant-select-dropdown .ant-select-item-option-selected { font-weight: 700 !important; }
+  .re-col-resize-handle { position: absolute; top: 0; right: -3px; width: 6px; height: 100%; cursor: col-resize; z-index: 5; } .re-col-resize-handle:hover { background: rgba(27,42,107,0.35); }
+  .re-row-resize-handle { position: absolute; left: 0; right: 0; bottom: -3px; height: 6px; cursor: row-resize; z-index: 5; } .re-row-resize-handle:hover { background: rgba(27,42,107,0.35); }
+  .re-img-wrap { max-width: 100%; } .re-img-wrap img { max-width: 100%; }
+  .re-img-resize-handle { position: absolute; right: -5px; bottom: -5px; width: 11px; height: 11px; background: #1b2a6b; border: 1.5px solid #fff; border-radius: 2px; cursor: nwse-resize; z-index: 10; box-shadow: 0 0 2px rgba(0,0,0,0.4); }
+  .re-table-context-menu { position: fixed; z-index: 999999; background: #fff; border: 1px solid #d5d9e5; border-radius: 8px; box-shadow: 0 8px 28px rgba(20,30,70,0.22); padding: 6px; display: flex; flex-direction: column; min-width: 200px; font-family: "Segoe UI", Arial, sans-serif; font-size: 13px; }
+  .re-table-context-menu button { text-align: left; background: none; border: none; padding: 7px 10px; border-radius: 5px; cursor: pointer; color: #1b2a6b; font-size: 12px; font-weight: 600; }
+  .re-table-context-menu button:hover { background: #eef1f8; }
+  .re-table-context-menu button.danger { color: #b91c1c; } .re-table-context-menu button.danger:hover { background: #fef2f2; }
+  .re-table-context-menu-sep { height: 1px; background: #eceff5; margin: 4px 2px; }
+  .re-toolbar .ant-select { vertical-align: middle; } .re-toolbar .ant-select-selector { background: rgba(255,255,255,0.08) !important; border: 1px solid rgba(255,255,255,0.18) !important; border-radius: 4px !important; height: 26px !important; min-height: 26px !important; color: #f2f2f2 !important; font-size: 12px !important; font-weight: 600 !important; padding: 0 8px !important; } .re-toolbar .ant-select-selector:hover { border-color: rgba(255,255,255,0.35) !important; } .re-toolbar .ant-select-selection-item { color: #f2f2f2 !important; font-size: 12px !important; font-weight: 600 !important; line-height: 24px !important; }  .re-toolbar .ant-select-selection-placeholder { color: #ffffff !important; opacity: 1 !important; font-size: 12px !important; font-weight: 600 !important; line-height: 24px !important; } .re-toolbar .ant-select-arrow { color: rgba(255,255,255,0.5) !important; font-size: 10px !important; } .re-toolbar .ant-select-disabled .ant-select-selector { opacity: 0.35 !important; cursor: not-allowed !important; } .ant-select-dropdown { z-index: 99999 !important; } .ant-select-dropdown .ant-select-item { font-size: 12px !important; padding: 4px 10px !important; } .ant-select-dropdown .ant-select-item-option-selected { font-weight: 700 !important; }
 `;
+
 
 export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'edit', isAssignedMaker = false, isAssignedChecker = false, isCeoRole = false, currentUserId, onClose, onSaved }) {
   const isReviewMode = mode === 'review';
@@ -171,17 +403,25 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
   const [importingDocx, setImportingDocx] = useState(false);
   const [isLastReply, setIsLastReply] = useState(false);
   const [isEditorEmpty, setIsEditorEmpty] = useState(true);
-
-  // ✅ States for Supporting Docs
   const [showSupportModal, setShowSupportModal] = useState(false);
   const [existingSupports, setExistingSupports] = useState([]);
   const [newSupportFiles, setNewSupportFiles] = useState([]);
+
+  // ✅ NEW: Table context menu + Format Painter states
+  const [activeTableCell, setActiveTableCell] = useState(null);
+  const [tableMenuPos, setTableMenuPos] = useState(null);
+  const [activeImageWrap, setActiveImageWrap] = useState(null);
+  const [imageMenuPos, setImageMenuPos] = useState(null);
+  const [paintActive, setPaintActive] = useState(false);
+  const paintFormatRef = useRef(null);
 
   const editorRef = useRef(null);
   const lastSavedRef = useRef({ title: '', content: '' });
   const currentReplyIdRef = useRef(replyId);
   const originalReplyIdRef = useRef(replyId);
   const fileInputRef = useRef(null);
+  const imageInputRef = useRef(null);
+  const pendingImageRangeRef = useRef(null);
   const recalcTimerRef = useRef(null);
   const savedSelectionRef = useRef(null);
   const isTypingRef = useRef(false);
@@ -207,19 +447,105 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
   const hasPrevDraft = currentDraftIndex > 0;
   const hasNextDraft = currentDraftIndex >= 0 && currentDraftIndex < replyHistory.length - 1;
 
-  const stripMarkers = (html) => { const t = document.createElement('div'); t.innerHTML = html; t.querySelectorAll('.re-page-break-marker, .re-trailing-spacer, .re-watermark, .re-col-resize-handle, .re-row-resize-handle').forEach(el => el.remove()); return t.innerHTML; };
+  const stripMarkers = (html) => { const t = document.createElement('div'); t.innerHTML = html; t.querySelectorAll('.re-page-break-marker, .re-trailing-spacer, .re-watermark, .re-col-resize-handle, .re-row-resize-handle, .re-img-resize-handle').forEach(el => el.remove()); return t.innerHTML; };
   const getCurrentContent = () => editorRef.current ? stripMarkers(editorRef.current.innerHTML) : '';
   const hasUnsavedChanges = () => title !== lastSavedRef.current.title || getCurrentContent() !== lastSavedRef.current.content;
 
+  // ✅ NEW: Global image resize handler
+  useEffect(() => {
+    window.__reStartImageResize = (e, handleEl) => {
+      e.preventDefault(); e.stopPropagation();
+      const wrap = handleEl.closest('.re-img-wrap'); if (!wrap) return;
+      const startX = e.clientX, rect = wrap.getBoundingClientRect();
+      const startWidth = rect.width, startHeight = rect.height;
+      const aspect = startWidth > 0 ? startHeight / startWidth : 1; const MIN_IMG_PX = 24;
+      const onMove = (ev) => {
+        const delta = ev.clientX - startX;
+        const newWidth = Math.max(MIN_IMG_PX, startWidth + delta);
+        wrap.style.width = `${newWidth}px`; wrap.style.height = `${newWidth * aspect}px`;
+      };
+      const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+      document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
+    };
+    return () => { delete window.__reStartImageResize; };
+  }, []);
 
   useEffect(() => {
     const handleSelectionChange = () => {
       const sel = window.getSelection(); if (!sel || sel.rangeCount === 0 || !editorRef.current) return;
-      if (editorRef.current.contains(sel.anchorNode)) savedSelectionRef.current = sel.getRangeAt(0).cloneRange();
+      if (editorRef.current.contains(sel.anchorNode)) {
+        savedSelectionRef.current = sel.getRangeAt(0).cloneRange();
+        // ✅ Track active table cell for context menu
+        let node = sel.anchorNode; if (node && node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+        let cell = null;
+        while (node && node !== editorRef.current) {
+          if (node.tagName === 'TD' || node.tagName === 'TH') { cell = node; break; }
+          node = node.parentElement;
+        }
+        setActiveTableCell(cell);
+      }
     };
     document.addEventListener('selectionchange', handleSelectionChange);
     return () => document.removeEventListener('selectionchange', handleSelectionChange);
   }, []);
+
+  
+  useEffect(() => {
+    if (!tableMenuPos && !imageMenuPos) return;
+    const close = () => { setTableMenuPos(null); setImageMenuPos(null); };
+    const closeOnEscape = (e) => { if (e.key === 'Escape') { setTableMenuPos(null); setImageMenuPos(null); } };
+    document.addEventListener('click', close);
+    document.addEventListener('keydown', closeOnEscape);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      document.removeEventListener('click', close);
+      document.removeEventListener('keydown', closeOnEscape);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [tableMenuPos, imageMenuPos]);
+
+  const handleEditorContextMenu = (e) => {
+    if (!canEditContent) return;
+    let node = e.target; if (node && node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+
+    // ✅ First check: is it an image?
+    let imgWrap = null;
+    let checkNode = node;
+    while (checkNode && checkNode !== editorRef.current) {
+      if (checkNode.classList && checkNode.classList.contains('re-img-wrap')) { imgWrap = checkNode; break; }
+      if (checkNode.tagName === 'IMG') { imgWrap = checkNode.closest('.re-img-wrap') || checkNode; break; }
+      checkNode = checkNode.parentElement;
+    }
+    if (imgWrap) {
+      e.preventDefault();
+      setActiveImageWrap(imgWrap);
+      setImageMenuPos({ x: e.clientX, y: e.clientY });
+      setTableMenuPos(null);
+      return;
+    }
+
+    // Otherwise check for table cell
+    let cell = null;
+    while (node && node !== editorRef.current) {
+      if (node.tagName === 'TD' || node.tagName === 'TH') { cell = node; break; }
+      node = node.parentElement;
+    }
+    if (!cell) { setTableMenuPos(null); setImageMenuPos(null); return; }
+    e.preventDefault();
+    setActiveTableCell(cell);
+    setTableMenuPos({ x: e.clientX, y: e.clientY });
+    setImageMenuPos(null);
+  };
+
+  // ✅ NEW: Block ALL editing keys when read-only (approved state)
+  const handleReadOnlyKeyDown = (e) => {
+    if (canEditContent) return;
+    // Allow only navigation & copy shortcuts
+    const allowedKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown', 'Tab', 'Shift', 'Control', 'Meta', 'Alt'];
+    if (allowedKeys.includes(e.key)) return;
+    if ((e.ctrlKey || e.metaKey) && ['c', 'a', 'f'].includes(e.key.toLowerCase())) return; // Allow copy/select-all/find
+    e.preventDefault();
+  };
 
   const recalcPagination = useCallback(() => {
     const editor = editorRef.current; if (!editor) return;
@@ -280,34 +606,12 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
       .finally(() => setLoading(false));
   }, [replyId, recalcPagination]);
 
-  // // ✅ Fetch Supporting Docs for this Reply
-  // useEffect(() => {
-  //   if (replyId) {
-  //     api.get('/legal-services/notice-documents/', { params: { notice: noticeId } })
-  //       .then(res => {
-  //         const list = Array.isArray(res.data) ? res.data : (res.data.results || []);
-  //         // 🔴 STRICT FRONTEND FILTER: Only keep supports linked to THIS replyId
-  //         const mySupports = list.filter(d => 
-  //           ['pending_support', 'supporting_doc'].includes(d.doc_type) && 
-  //           String(d.reply_version) === String(replyId)
-  //         );
-  //         setExistingSupports(mySupports);
-  //       })
-  //       .catch(() => setExistingSupports([]));
-  //   } else {
-  //     setExistingSupports([]);
-  //   }
-  // }, [replyId, noticeId]);
-
-  // ✅ Fetch Supporting Docs for this Reply (UPDATED to support History switching)
   useEffect(() => {
     const activeId = reply?.id || replyId; 
-
     if (activeId) {
       api.get('/legal-services/notice-documents/', { params: { notice: noticeId } })
         .then(res => {
           const list = Array.isArray(res.data) ? res.data : (res.data.results || []);
-          // 2. Filter using activeId
           const mySupports = list.filter(d => 
             ['pending_support', 'supporting_doc'].includes(d.doc_type) && 
             String(d.reply_version) === String(activeId)
@@ -315,11 +619,8 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
           setExistingSupports(mySupports);
         })
         .catch(() => setExistingSupports([]));
-    } else {
-      setExistingSupports([]);
-    }
+    } else { setExistingSupports([]); }
   }, [reply?.id, replyId, noticeId]); 
-
 
   useEffect(() => {
     if (loading || !editorRef.current) return;
@@ -334,7 +635,7 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
 
   const handleStageMouseDown = (e) => {
     const editor = editorRef.current; if (!editor || e.target === editor || editor.contains(e.target)) return;
-    if (e.target.closest('.re-editor, button, input, select, a, .re-col-resize-handle, .re-row-resize-handle')) return;
+    if (e.target.closest('.re-editor, button, input, select, a, .re-col-resize-handle, .re-row-resize-handle, .re-img-resize-handle, .re-table-context-menu')) return;
     e.preventDefault(); editor.focus(); try { const sel = window.getSelection(); const range = document.createRange(); range.selectNodeContents(editor); range.collapse(false); sel.removeAllRanges(); sel.addRange(range); } catch {}
   };
 
@@ -349,6 +650,7 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
 
   const focusEditor = () => { if (editorRef.current) editorRef.current.focus(); };
   const runCommand = (cmd, val = null) => {
+    if (!canEditContent) return;
     editorRef.current && editorRef.current.focus(); let sel = window.getSelection(); let hasSel = sel && sel.rangeCount > 0 && editorRef.current && editorRef.current.contains(sel.anchorNode);
     if (!hasSel && savedSelectionRef.current) { try { sel.removeAllRanges(); sel.addRange(savedSelectionRef.current); } catch {} }
     document.execCommand(cmd, false, val); sel = window.getSelection(); if (sel && sel.rangeCount > 0 && editorRef.current && editorRef.current.contains(sel.anchorNode)) { savedSelectionRef.current = sel.getRangeAt(0).cloneRange(); } scheduleMeasure(true);
@@ -358,95 +660,573 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
   const reselectSpans = (spans) => { if (!spans || spans.length === 0) return; try { const sel = window.getSelection(); const range = document.createRange(); range.setStartBefore(spans[0]); range.setEndAfter(spans[spans.length - 1]); sel.removeAllRanges(); sel.addRange(range); savedSelectionRef.current = range.cloneRange(); } catch {} };
   const applyRangeCommand = (command, value, styleSetter) => { try { document.execCommand('styleWithCSS', false, true); } catch {} document.execCommand(command, false, value); try { document.execCommand('styleWithCSS', false, false); } catch {} const created = convertFontTagsToSpans(editorRef.current, styleSetter); if (created.length) { reselectSpans(created); } else { const sel = window.getSelection(); if (sel && sel.rangeCount > 0 && editorRef.current && editorRef.current.contains(sel.anchorNode)) { savedSelectionRef.current = sel.getRangeAt(0).cloneRange(); } } };
 
+  // ✅ NEW: Reliable per-selection style applier — works on partial selections without leaking to unselected text
+  const applyStyleToSelection = (styleProp, styleValue) => {
+    if (!canEditContent) return false;
+    editorRef.current && editorRef.current.focus();
+
+    let sel = window.getSelection();
+    let hasSel = sel && sel.rangeCount > 0 && !sel.isCollapsed && editorRef.current && editorRef.current.contains(sel.anchorNode);
+    if (!hasSel && savedSelectionRef.current) {
+      try {
+        sel.removeAllRanges();
+        sel.addRange(savedSelectionRef.current);
+        hasSel = sel && sel.rangeCount > 0 && !sel.isCollapsed && editorRef.current && editorRef.current.contains(sel.anchorNode);
+      } catch {}
+    }
+
+    if (!hasSel) return false; // Nothing selected → caller handles default (set for future typing)
+
+    const range = sel.getRangeAt(0);
+
+    // Collect all text nodes intersecting the selection
+    const walker = document.createTreeWalker(editorRef.current, NodeFilter.SHOW_TEXT, {
+      acceptNode: (node) => {
+        if (!node.textContent) return NodeFilter.FILTER_REJECT;
+        // Only nodes that intersect the range
+        const nodeRange = document.createRange();
+        nodeRange.selectNodeContents(node);
+        const intersects = range.compareBoundaryPoints(Range.END_TO_START, nodeRange) < 0 &&
+                          range.compareBoundaryPoints(Range.START_TO_END, nodeRange) > 0;
+        return intersects ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+      }
+    });
+
+    const textNodes = [];
+    let node = walker.nextNode();
+    while (node) { textNodes.push(node); node = walker.nextNode(); }
+
+    if (textNodes.length === 0) return false;
+
+    const firstSpans = [];
+    const lastSpans = [];
+
+    textNodes.forEach((tn) => {
+      // Determine slice boundaries within this text node
+      const isFirst = tn === range.startContainer;
+      const isLast = tn === range.endContainer;
+      const startOffset = isFirst ? range.startOffset : 0;
+      const endOffset = isLast ? range.endOffset : tn.textContent.length;
+      if (startOffset >= endOffset) return;
+
+      // Split the text node so we can wrap ONLY the selected portion
+      let target = tn;
+      if (endOffset < tn.textContent.length) target.splitText(endOffset);
+      if (startOffset > 0) target = target.splitText(startOffset);
+
+      // If parent is already a span with only this styleProp, just update it
+      const parent = target.parentElement;
+      if (parent && parent.tagName === 'SPAN' && parent.childNodes.length === 1 && parent.firstChild === target) {
+        parent.style[styleProp] = styleValue;
+        firstSpans.push(parent);
+        lastSpans.push(parent);
+      } else {
+        // Wrap in a new span
+        const span = document.createElement('span');
+        span.style[styleProp] = styleValue;
+        target.parentNode.insertBefore(span, target);
+        span.appendChild(target);
+        firstSpans.push(span);
+        lastSpans.push(span);
+      }
+    });
+
+    // Restore selection over the wrapped spans
+    if (firstSpans.length > 0) {
+      try {
+        const newRange = document.createRange();
+        newRange.setStart(firstSpans[0], 0);
+        newRange.setEnd(lastSpans[lastSpans.length - 1], lastSpans[lastSpans.length - 1].childNodes.length);
+        sel.removeAllRanges();
+        sel.addRange(newRange);
+        savedSelectionRef.current = newRange.cloneRange();
+      } catch {}
+    }
+
+    return true;
+  };
+
   const applyFontFamily = (f) => {
-    if (!f) return; editorRef.current && editorRef.current.focus(); let sel = window.getSelection(); let hasSel = sel && sel.rangeCount > 0 && !sel.isCollapsed && editorRef.current && editorRef.current.contains(sel.anchorNode);
-    if (!hasSel && savedSelectionRef.current) { try { sel.removeAllRanges(); sel.addRange(savedSelectionRef.current); hasSel = sel && sel.rangeCount > 0 && !sel.isCollapsed && editorRef.current && editorRef.current.contains(sel.anchorNode); } catch {} }
-    if (!hasSel) { setFontFamily(f); if (editorRef.current) editorRef.current.style.fontFamily = f; scheduleMeasure(true); return; }
-    setFontFamily(f); applyRangeCommand('fontName', f, (span) => { span.style.fontFamily = f; }); scheduleMeasure(true);
+    if (!f || !canEditContent) return;
+    const applied = applyStyleToSelection('fontFamily', f);
+    if (!applied) {
+      // Nothing selected — set default for editor (future typing)
+      setFontFamily(f);
+      if (editorRef.current) editorRef.current.style.fontFamily = f;
+    } else {
+      setFontFamily(f);
+    }
+    scheduleMeasure(true);
   };
 
   const applyFontSize = (pt) => {
-    if (!pt) return; editorRef.current && editorRef.current.focus(); let sel = window.getSelection(); let hasSel = sel && sel.rangeCount > 0 && !sel.isCollapsed && editorRef.current && editorRef.current.contains(sel.anchorNode);
-    if (!hasSel && savedSelectionRef.current) { try { sel.removeAllRanges(); sel.addRange(savedSelectionRef.current); hasSel = sel && sel.rangeCount > 0 && !sel.isCollapsed && editorRef.current && editorRef.current.contains(sel.anchorNode); } catch {} }
-    if (!hasSel) { setFontSize(pt); if (editorRef.current) editorRef.current.style.fontSize = pt; scheduleMeasure(true); return; }
-    setFontSize(pt); applyRangeCommand('fontSize', '7', (span) => { span.style.fontSize = pt; }); scheduleMeasure(true);
+    if (!pt || !canEditContent) return;
+    const applied = applyStyleToSelection('fontSize', pt);
+    if (!applied) {
+      // Nothing selected — set default for editor (future typing)
+      setFontSize(pt);
+      if (editorRef.current) editorRef.current.style.fontSize = pt;
+    } else {
+      setFontSize(pt);
+    }
+    scheduleMeasure(true);
   };
  
-  const applyLineHeight = (lh) => { if (!lh) return; setLineHeight(lh); if (editorRef.current) editorRef.current.style.lineHeight = lh; scheduleMeasure(true); };
+  const applyLineHeight = (lh) => { if (!lh || !canEditContent) return; setLineHeight(lh); if (editorRef.current) editorRef.current.style.lineHeight = lh; scheduleMeasure(true); };
 
   const applyTextColor = (color) => {
-    if (!color) return; setTextColor(color); editorRef.current && editorRef.current.focus(); let sel = window.getSelection(); let hasSel = sel && sel.rangeCount > 0 && !sel.isCollapsed && editorRef.current && editorRef.current.contains(sel.anchorNode);
-    if (!hasSel && savedSelectionRef.current) { try { sel.removeAllRanges(); sel.addRange(savedSelectionRef.current); hasSel = sel && sel.rangeCount > 0 && !sel.isCollapsed && editorRef.current && editorRef.current.contains(sel.anchorNode); } catch {} }
-    if (!hasSel) { if (editorRef.current) editorRef.current.style.color = color; return; }
-    applyRangeCommand('foreColor', color, (span) => { span.style.color = color; }); scheduleMeasure(true);
+    if (!color || !canEditContent) return;
+    setTextColor(color);
+    const applied = applyStyleToSelection('color', color);
+    if (!applied && editorRef.current) editorRef.current.style.color = color;
+    scheduleMeasure(true);
   };
 
   const applyHighlight = (color) => {
-    if (!color) return; setHighlightColor(color); editorRef.current && editorRef.current.focus(); let sel = window.getSelection(); let hasSel = sel && sel.rangeCount > 0 && !sel.isCollapsed && editorRef.current && editorRef.current.contains(sel.anchorNode);
-    if (!hasSel && savedSelectionRef.current) { try { sel.removeAllRanges(); sel.addRange(savedSelectionRef.current); hasSel = sel && sel.rangeCount > 0 && !sel.isCollapsed && editorRef.current && editorRef.current.contains(sel.anchorNode); } catch {} }
+    if (!color || !canEditContent) return;
+    setHighlightColor(color);
+    editorRef.current && editorRef.current.focus();
+
+    let sel = window.getSelection();
+    let hasSel = sel && sel.rangeCount > 0 && !sel.isCollapsed && editorRef.current && editorRef.current.contains(sel.anchorNode);
+    if (!hasSel && savedSelectionRef.current) {
+      try { sel.removeAllRanges(); sel.addRange(savedSelectionRef.current); hasSel = sel && sel.rangeCount > 0 && !sel.isCollapsed; } catch {}
+    }
     if (!hasSel) return;
-    applyRangeCommand('hiliteColor', color, (span) => { span.style.backgroundColor = color; }); scheduleMeasure(true);
+
+    // Detect if selection already has a highlight → toggle off
+    const range = sel.getRangeAt(0);
+    const container = range.commonAncestorContainer;
+    const parentEl = container.nodeType === Node.TEXT_NODE ? container.parentElement : container;
+    const existingBg = parentEl && parentEl.style && parentEl.style.backgroundColor;
+    const isHighlighted = existingBg && existingBg !== 'transparent' && existingBg !== 'rgba(0, 0, 0, 0)' && existingBg !== '';
+
+    if (isHighlighted) {
+      // Remove highlight
+      applyStyleToSelection('backgroundColor', '');
+      // Also clean up leftover empty spans
+      const walker = document.createTreeWalker(editorRef.current, NodeFilter.SHOW_ELEMENT);
+      const emptySpans = []; let n = walker.nextNode();
+      while (n) {
+        if (n.tagName === 'SPAN' && !n.getAttribute('style')) emptySpans.push(n);
+        n = walker.nextNode();
+      }
+      emptySpans.forEach(s => {
+        const parent = s.parentNode;
+        while (s.firstChild) parent.insertBefore(s.firstChild, s);
+        parent.removeChild(s);
+      });
+    } else {
+      applyStyleToSelection('backgroundColor', color);
+    }
+    scheduleMeasure(true);
   };
 
-  const insertList = (styleType, ordered) => { editorRef.current && editorRef.current.focus(); let sel = window.getSelection(); if ((!sel || sel.rangeCount === 0 || !editorRef.current.contains(sel.anchorNode)) && savedSelectionRef.current) { try { sel.removeAllRanges(); sel.addRange(savedSelectionRef.current); } catch {} } document.execCommand(ordered ? 'insertOrderedList' : 'insertUnorderedList'); sel = window.getSelection(); if (sel && sel.anchorNode) { let n = sel.anchorNode; while (n && n.nodeName !== 'UL' && n.nodeName !== 'OL') n = n.parentNode; if (n) n.style.listStyleType = styleType; } scheduleMeasure(true); };
-  const insertTable = () => { const ri = window.prompt('Rows?', '3'); if (ri === null) return; const ci = window.prompt('Columns?', '3'); if (ci === null) return; const rows = Math.max(1, Math.min(20, parseInt(ri,10)||3)); const cols = Math.max(1, Math.min(10, parseInt(ci,10)||3)); const wp = (100/cols).toFixed(3); let html = '<table style="table-layout:fixed;width:100%;border-collapse:collapse;margin:6px 0;"><colgroup>'; for (let c=0;c<cols;c++) html += `<col style="width:${wp}%;">`; html += '</colgroup>'; for (let r=0;r<rows;r++) { html += '<tr>'; for (let c=0;c<cols;c++) { html += '<td style="position:relative;border:1px solid #999;padding:6px 8px;">&nbsp;</td>'; } html += '</tr>'; } html += '</table>'; focusEditor(); document.execCommand('insertHTML', false, html); scheduleMeasure(true); };
-  const handleKeyDown = (e) => { if (e.key === 'Tab') { e.preventDefault(); document.execCommand('insertHTML', false, '&nbsp;&nbsp;&nbsp;&nbsp;'); scheduleMeasure(true); } if (e.key === 'Enter') { setTimeout(() => scheduleMeasure(true), 50); } };
+  const insertList = (styleType, ordered) => { if (!canEditContent) return; editorRef.current && editorRef.current.focus(); let sel = window.getSelection(); if ((!sel || sel.rangeCount === 0 || !editorRef.current.contains(sel.anchorNode)) && savedSelectionRef.current) { try { sel.removeAllRanges(); sel.addRange(savedSelectionRef.current); } catch {} } document.execCommand(ordered ? 'insertOrderedList' : 'insertUnorderedList'); sel = window.getSelection(); if (sel && sel.anchorNode) { let n = sel.anchorNode; while (n && n.nodeName !== 'UL' && n.nodeName !== 'OL') n = n.parentNode; if (n) n.style.listStyleType = styleType; } scheduleMeasure(true); };
+  const insertTable = () => { if (!canEditContent) return; const ri = window.prompt('Rows?', '3'); if (ri === null) return; const ci = window.prompt('Columns?', '3'); if (ci === null) return; const rows = Math.max(1, Math.min(20, parseInt(ri,10)||3)); const cols = Math.max(1, Math.min(10, parseInt(ci,10)||3)); const wp = (100/cols).toFixed(3); let html = '<table style="table-layout:fixed;width:100%;border-collapse:collapse;margin:6px 0;"><colgroup>'; for (let c=0;c<cols;c++) html += `<col style="width:${wp}%;">`; html += '</colgroup>'; for (let r=0;r<rows;r++) { html += '<tr>'; for (let c=0;c<cols;c++) { html += '<td style="position:relative;border:1px solid #999;padding:6px 8px;">&nbsp;</td>'; } html += '</tr>'; } html += '</table>'; focusEditor(); document.execCommand('insertHTML', false, html); scheduleMeasure(true); };
+  
+  // ✅ Table operations
+  const cellIndexOf = (cell) => { let index = 0, sib = cell.previousElementSibling; while (sib) { index += parseInt(sib.getAttribute('colspan'), 10) || 1; sib = sib.previousElementSibling; } return index; };
+  const cloneCellForInsert = (ref) => { const td = document.createElement(ref && ref.tagName === 'TH' ? 'TH' : 'TD'); td.setAttribute('style', (ref && ref.getAttribute('style')) || 'position:relative;border:1px solid #999;padding:6px 8px;'); td.innerHTML = '&nbsp;'; return td; };
+
+  const insertTableRow = (before) => {
+    const cell = activeTableCell; if (!cell) return; const row = cell.closest('tr'), table = cell.closest('table'); if (!row || !table) return;
+    const colCount = Array.from(row.children).reduce((sum, c) => sum + (parseInt(c.getAttribute('colspan'), 10) || 1), 0);
+    const newRow = document.createElement('tr');
+    for (let i = 0; i < colCount; i++) newRow.appendChild(cloneCellForInsert(row.children[Math.min(i, row.children.length - 1)] || cell));
+    row.parentNode.insertBefore(newRow, before ? row : row.nextSibling); ensureTableResizeHandles(table); scheduleMeasure(true);
+  };
+
+  const insertTableColumn = (before) => {
+    const cell = activeTableCell; if (!cell) return; const table = cell.closest('table'), row = cell.closest('tr'); if (!table || !row) return;
+    const colIndex = cellIndexOf(cell); const rows = Array.from(table.querySelectorAll('tr'));
+    rows.forEach((r) => {
+      let running = 0, refCell = null;
+      for (const c of Array.from(r.children)) { const span = parseInt(c.getAttribute('colspan'), 10) || 1; if (colIndex >= running && colIndex < running + span) { refCell = c; break; } running += span; }
+      const newCell = cloneCellForInsert(refCell || r.children[r.children.length - 1]);
+      if (refCell) r.insertBefore(newCell, before ? refCell : refCell.nextSibling); else r.appendChild(newCell);
+    });
+    const colgroup = table.querySelector('colgroup');
+    if (colgroup) {
+      const cols = Array.from(colgroup.children), refCol = cols[colIndex] || cols[cols.length - 1], newCol = document.createElement('col');
+      if (refCol) { newCol.setAttribute('style', refCol.getAttribute('style') || ''); colgroup.insertBefore(newCol, before ? refCol : refCol.nextSibling); } else colgroup.appendChild(newCol);
+      const allCols = Array.from(colgroup.children), pct = (100 / allCols.length).toFixed(3); allCols.forEach((c) => { c.style.width = `${pct}%`; });
+    }
+    ensureTableResizeHandles(table); scheduleMeasure(true);
+  };
+
+  const deleteTableRow = () => {
+    const cell = activeTableCell; if (!cell) return; const row = cell.closest('tr'), table = cell.closest('table'); if (!row || !table) return;
+    if (table.querySelectorAll('tr').length <= 1) table.remove(); else { row.remove(); ensureTableResizeHandles(table); }
+    setActiveTableCell(null); scheduleMeasure(true);
+  };
+
+  const deleteTableColumn = () => {
+    const cell = activeTableCell; if (!cell) return; const table = cell.closest('table'), row = cell.closest('tr'); if (!table || !row) return;
+    const colIndex = cellIndexOf(cell); const colCount = Array.from(row.children).reduce((sum, c) => sum + (parseInt(c.getAttribute('colspan'), 10) || 1), 0);
+    if (colCount <= 1) { table.remove(); setActiveTableCell(null); scheduleMeasure(true); return; }
+    Array.from(table.querySelectorAll('tr')).forEach((r) => {
+      let running = 0;
+      for (const c of Array.from(r.children)) {
+        const span = parseInt(c.getAttribute('colspan'), 10) || 1;
+        if (colIndex >= running && colIndex < running + span) { if (span > 1) { const newSpan = span - 1; if (newSpan <= 1) c.removeAttribute('colspan'); else c.setAttribute('colspan', String(newSpan)); } else c.remove(); break; }
+        running += span;
+      }
+    });
+    const colgroup = table.querySelector('colgroup');
+    if (colgroup && colgroup.children[colIndex]) { colgroup.children[colIndex].remove(); const allCols = Array.from(colgroup.children); if (allCols.length) { const pct = (100 / allCols.length).toFixed(3); allCols.forEach((c) => { c.style.width = `${pct}%`; }); } }
+    ensureTableResizeHandles(table); setActiveTableCell(null); scheduleMeasure(true);
+  };
+
+  const deleteWholeTable = () => {
+    const cell = activeTableCell; if (!cell) return; const table = cell.closest('table'); if (table) table.remove();
+    setActiveTableCell(null); scheduleMeasure(true);
+  };
+
+  // ✅ NEW: Image operations
+  const deleteImage = () => {
+    if (!activeImageWrap) return;
+    activeImageWrap.remove();
+    setActiveImageWrap(null);
+    scheduleMeasure(true);
+    showToast('🗑 Image deleted');
+  };
+
+  const resetImageSize = () => {
+    if (!activeImageWrap) return;
+    const img = activeImageWrap.querySelector('img');
+    if (!img) return;
+    // Reset to natural dimensions (capped at 480px width)
+    const MAX_W = 480;
+    const nat = new Image();
+    nat.onload = () => {
+      let w = nat.naturalWidth || MAX_W;
+      let h = nat.naturalHeight || MAX_W;
+      if (w > MAX_W) { h = Math.round(h * (MAX_W / w)); w = MAX_W; }
+      activeImageWrap.style.width = `${w}px`;
+      activeImageWrap.style.height = `${h}px`;
+      scheduleMeasure(true);
+    };
+    nat.onerror = () => { activeImageWrap.style.width = ''; activeImageWrap.style.height = ''; };
+    nat.src = img.src;
+    setActiveImageWrap(null);
+  };
+
+  const setImageAlignment = (align) => {
+    if (!activeImageWrap) return;
+    // Find the block containing the image
+    const block = activeImageWrap.closest('div, p, li') || activeImageWrap.parentElement;
+    if (block) block.style.textAlign = align;
+    setActiveImageWrap(null);
+    scheduleMeasure(true);
+  };
+
+
+  // ✅ Image insert
+  const insertImageFile = (file, targetRange) => {
+    if (!canEditContent) return;
+    const MAX_INITIAL_WIDTH = 480; const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result, probe = new Image();
+      const finish = (w, h) => {
+        focusEditor(); const sel = window.getSelection();
+        if (targetRange && editorRef.current && editorRef.current.contains(targetRange.startContainer)) { sel.removeAllRanges(); sel.addRange(targetRange); }
+        document.execCommand('insertHTML', false, buildImageHtml(dataUrl, w, h)); scheduleMeasure(true);
+      };
+      probe.onload = () => {
+        let w = probe.naturalWidth || MAX_INITIAL_WIDTH, h = probe.naturalHeight || MAX_INITIAL_WIDTH;
+        if (w > MAX_INITIAL_WIDTH) { h = Math.round(h * (MAX_INITIAL_WIDTH / w)); w = MAX_INITIAL_WIDTH; } finish(w, h);
+      };
+      probe.onerror = () => finish(undefined, undefined); probe.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // ✅ NEW: Format Painter
+  const captureFormatFromSelection = () => {
+    const sel = window.getSelection(); let node = sel && sel.anchorNode; if (!node) return null;
+    if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+    if (!node || !editorRef.current || !editorRef.current.contains(node)) return null;
+    const cs = getComputedStyle(node);
+    return { fontFamily: cs.fontFamily, fontSize: cs.fontSize, fontWeight: cs.fontWeight, fontStyle: cs.fontStyle, textDecorationLine: cs.textDecorationLine, color: cs.color, backgroundColor: cs.backgroundColor };
+  };
+
+  const toggleFormatPainter = () => {
+    if (!canEditContent) return;
+    if (paintFormatRef.current) { paintFormatRef.current = null; setPaintActive(false); return; }
+    const fmt = captureFormatFromSelection(); if (!fmt) { showToast('⚠ Select formatted text first'); return; }
+    paintFormatRef.current = fmt; setPaintActive(true);
+  };
+
+  const handleEditorMouseUp = () => {
+    if (!paintFormatRef.current || !canEditContent) return;
+    const sel = window.getSelection(); if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+    if (!editorRef.current || !editorRef.current.contains(sel.anchorNode)) return;
+    const fmt = paintFormatRef.current;
+    applyRangeCommand('fontName', fmt.fontFamily, (span) => {
+      span.style.fontFamily = fmt.fontFamily; span.style.fontSize = fmt.fontSize; span.style.fontWeight = fmt.fontWeight;
+      span.style.fontStyle = fmt.fontStyle; span.style.textDecoration = fmt.textDecorationLine; span.style.color = fmt.color;
+      if (fmt.backgroundColor && fmt.backgroundColor !== 'rgba(0, 0, 0, 0)') span.style.backgroundColor = fmt.backgroundColor;
+    });
+    paintFormatRef.current = null; setPaintActive(false); scheduleMeasure(true);
+  };
+
+  const applyChangeCase = (mode) => {
+    if (!mode || !canEditContent) return;
+    editorRef.current && editorRef.current.focus();
+    let sel = window.getSelection();
+    let hasSel = sel && sel.rangeCount > 0 && !sel.isCollapsed && editorRef.current && editorRef.current.contains(sel.anchorNode);
+    if (!hasSel && savedSelectionRef.current) {
+      try { sel.removeAllRanges(); sel.addRange(savedSelectionRef.current); hasSel = sel && sel.rangeCount > 0 && !sel.isCollapsed; } catch {}
+    }
+    if (!hasSel) { showToast('⚠ Select text first'); return; }
+    const text = sel.toString(); let newText;
+    switch (mode) {
+      case 'upper': newText = text.toUpperCase(); break;
+      case 'lower': newText = text.toLowerCase(); break;
+      case 'title': newText = text.replace(/\w\S*/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()); break;
+      case 'sentence': newText = text.toLowerCase().replace(/(^\s*[a-z]|[.!?]\s+[a-z])/g, (m) => m.toUpperCase()); break;
+      default: newText = text;
+    }
+    document.execCommand('insertText', false, newText); scheduleMeasure(true);
+  };
+
+  // ✅ NEW: Paragraph Style — preserves selection via savedSelectionRef
+  const applyParagraphStyle = (value) => {
+    if (!value || !canEditContent) return;
+    editorRef.current && editorRef.current.focus();
+    let sel = window.getSelection();
+    if ((!sel || sel.rangeCount === 0 || !editorRef.current.contains(sel.anchorNode)) && savedSelectionRef.current) {
+      try { sel.removeAllRanges(); sel.addRange(savedSelectionRef.current); } catch {}
+    }
+    if (value === 'title') {
+      document.execCommand('formatBlock', false, 'H1');
+      sel = window.getSelection(); let node = sel && sel.anchorNode;
+      if (node) { if (node.nodeType === Node.TEXT_NODE) node = node.parentElement; while (node && node.nodeName !== 'H1') node = node.parentElement; if (node) node.classList.add('re-title-style'); }
+    } else {
+      document.execCommand('formatBlock', false, value);
+    }
+    scheduleMeasure(true);
+  };
+
+  const handleKeyDown = (e) => {
+    if (!canEditContent) { handleReadOnlyKeyDown(e); return; }
+    if (e.key === 'Tab') { e.preventDefault(); document.execCommand('insertHTML', false, '&nbsp;&nbsp;&nbsp;&nbsp;'); scheduleMeasure(true); }
+    if (e.key === 'Enter') { setTimeout(() => scheduleMeasure(true), 50); }
+  };
 
   const handlePaste = (e) => {
+    if (!canEditContent) { e.preventDefault(); return; }
     const cd = e.clipboardData || window.clipboardData; const html = cd.getData('text/html'); const plain = cd.getData('text/plain') || '';
-    if (!html.trim() && !plain.trim()) { const imageItem = Array.from(cd.items || []).find((it) => it.kind === 'file' && it.type.startsWith('image/')); if (imageItem) { e.preventDefault(); const file = imageItem.getAsFile(); if (file) { const reader = new FileReader(); reader.onload = () => { focusEditor(); document.execCommand('insertHTML', false, `<img src="${reader.result}" style="max-width:100%;">`); scheduleMeasure(true); }; reader.readAsDataURL(file); } return; } if (!cd.items || cd.items.length === 0) return; }
-    e.preventDefault(); let htmlToInsert; if (html && html.trim()) { htmlToInsert = sanitizeClipboardHtml(html); } else { const paragraphs = plain.split(/\r?\n/).map(p => p.trim()).filter(Boolean); htmlToInsert = (paragraphs.length ? paragraphs : [plain]).map(p => `<div>${escapeHtml(p)}</div>`).join(''); } document.execCommand('insertHTML', false, htmlToInsert); scheduleMeasure(true);
+    if (!html.trim() && !plain.trim()) {
+      const imageItem = Array.from(cd.items || []).find((it) => it.kind === 'file' && it.type.startsWith('image/'));
+      if (imageItem) {
+        e.preventDefault();
+        const file = imageItem.getAsFile();
+        if (file) {
+          const sel = window.getSelection();
+          const targetRange = sel && sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
+          insertImageFile(file, targetRange);
+        }
+        return;
+      }
+      if (!cd.items || cd.items.length === 0) return;
+    }
+    e.preventDefault(); let htmlToInsert;
+    if (html && html.trim()) { htmlToInsert = sanitizeClipboardHtml(html); }
+    else { const paragraphs = plain.split(/\r?\n/).map(p => p.trim()).filter(Boolean); htmlToInsert = (paragraphs.length ? paragraphs : [plain]).map(p => `<div>${escapeHtml(p)}</div>`).join(''); }
+    document.execCommand('insertHTML', false, htmlToInsert); scheduleMeasure(true);
   };
 
   const handleDocxUpload = async (e) => {
-    const file = e.target.files?.[0]; if (!file) return;
+    const file = e.target.files?.[0]; if (!file || !canEditContent) return;
     if (file.type && file.type.startsWith('image/')) {
-      setImportingDocx(true); try { const reader = new FileReader(); const dataUrl = await new Promise((resolve, reject) => { reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file); }); if (editorRef.current) { focusEditor(); document.execCommand('insertHTML', false, `<img src="${dataUrl}" style="max-width:100%;">`); scheduleMeasure(true); showToast('✅ Image imported'); } } catch (err) { console.error('Image import failed:', err); showToast('⚠ Failed to import image'); } finally { setImportingDocx(false); if (fileInputRef.current) fileInputRef.current.value = ''; } return;
+      setImportingDocx(true);
+      try { insertImageFile(file, null); showToast('✅ Image imported'); }
+      catch (err) { showToast('⚠ Failed to import image'); }
+      finally { setImportingDocx(false); if (fileInputRef.current) fileInputRef.current.value = ''; }
+      return;
     }
     if (!file.name.match(/\.docx?$/i)) { showToast('⚠ Please upload a .docx file or an image'); return; }
     setImportingDocx(true);
     try {
       const arrayBuffer = await file.arrayBuffer();
-      const mammothResult = await mammoth.convertToHtml({ arrayBuffer }, { styleMap: ["p[style-name='Heading 1'] => h1:fresh", "p[style-name='Heading 2'] => h2:fresh", "p[style-name='Heading 3'] => h3:fresh", "p[style-name='Heading 4'] => h4:fresh", "p[style-name='Title'] => h1:fresh", "b => strong", "i => em", "u => u", "strike => s"], includeDefaultStyleMap: true, convertImage: mammoth.images.inline((element) => { return element.read('base64').then((imageBuffer) => { return { src: `data:${element.contentType};base64,${imageBuffer}` }; }); }) });
+
+      // ✅ ENHANCED: Preserve fonts, sizes, colors, alignment, indentation exactly as source
+      const mammothResult = await mammoth.convertToHtml({ arrayBuffer }, {
+        styleMap: [
+          "p[style-name='Heading 1'] => h1:fresh",
+          "p[style-name='Heading 2'] => h2:fresh",
+          "p[style-name='Heading 3'] => h3:fresh",
+          "p[style-name='Heading 4'] => h4:fresh",
+          "p[style-name='Title'] => h1:fresh",
+          "b => strong",
+          "i => em",
+          "u => u",
+          "strike => s",
+        ],
+        includeDefaultStyleMap: true,
+        // ✅ Preserve raw inline styles from Word (crucial for font family/size/color)
+        transformDocument: mammoth.transforms.paragraph(function(paragraph) {
+          return paragraph;
+        }),
+        convertImage: mammoth.images.inline((element) => {
+          return element.read('base64').then((imageBuffer) => {
+            return { src: `data:${element.contentType};base64,${imageBuffer}` };
+          });
+        }),
+      });
+
       let finalHtml = mammothResult.value || '';
+
+      // ✅ ENHANCED: Parse the DOCX XML directly to extract font family, size, color, alignment, indent per run
       try {
-        const JSZip = (await import('jszip')).default; const zip = await JSZip.loadAsync(arrayBuffer); const htmlFile = zip.file('word/document.xml');
+        const JSZip = (await import('jszip')).default;
+        const zip = await JSZip.loadAsync(arrayBuffer);
+        const htmlFile = zip.file('word/document.xml');
+
         if (htmlFile) {
-          const xmlContent = await htmlFile.async('string'); const alignments = {}; const paraMatches = xmlContent.matchAll(/<w:p [^>]*>[\s\S]*?<\/w:p>/g); let paraIndex = 0;
-          for (const match of paraMatches) { const paraXml = match[0]; if (paraXml.includes('<w:jc w:val="center"')) { alignments[paraIndex] = 'center'; } else if (paraXml.includes('<w:jc w:val="right"')) { alignments[paraIndex] = 'right'; } else if (paraXml.includes('<w:jc w:val="both"') || paraXml.includes('<w:jc w:val="distribute"')) { alignments[paraIndex] = 'justify'; } const indMatch = paraXml.match(/<w:ind w:left="(\d+)"/); if (indMatch) { const twips = parseInt(indMatch[1], 10); const inches = twips / 1440; if (!alignments[paraIndex]) alignments[paraIndex] = ''; alignments[`${paraIndex}_indent`] = `${inches.toFixed(2)}in`; } paraIndex++; }
-          const tempDiv = document.createElement('div'); tempDiv.innerHTML = finalHtml; const allParagraphs = tempDiv.querySelectorAll('p, h1, h2, h3, h4, h5, h6');
-          allParagraphs.forEach((p, idx) => { if (alignments[idx]) p.style.textAlign = alignments[idx]; if (alignments[`${idx}_indent`]) p.style.marginLeft = alignments[`${idx}_indent`]; }); finalHtml = tempDiv.innerHTML;
+          const xmlContent = await htmlFile.async('string');
+          const paraStyles = []; // Array of per-paragraph info
+          const paraMatches = xmlContent.matchAll(/<w:p [^>]*>[\s\S]*?<\/w:p>|<w:p>[\s\S]*?<\/w:p>/g);
+
+          for (const match of paraMatches) {
+            const paraXml = match[0];
+            const info = { align: '', indent: '', runs: [] };
+
+            // Alignment
+            if (paraXml.includes('<w:jc w:val="center"')) info.align = 'center';
+            else if (paraXml.includes('<w:jc w:val="right"')) info.align = 'right';
+            else if (paraXml.includes('<w:jc w:val="both"') || paraXml.includes('<w:jc w:val="distribute"')) info.align = 'justify';
+
+            // Indent
+            const indMatch = paraXml.match(/<w:ind w:left="(\d+)"/);
+            if (indMatch) {
+              const twips = parseInt(indMatch[1], 10);
+              info.indent = `${(twips / 1440).toFixed(2)}in`;
+            }
+
+            // Line spacing
+            const lineMatch = paraXml.match(/<w:spacing[^>]*w:line="(\d+)"/);
+            if (lineMatch) {
+              const twentieths = parseInt(lineMatch[1], 10);
+              info.lineHeight = (twentieths / 240).toFixed(2);
+            }
+
+            // Extract all runs (text spans) with their formatting
+            const runMatches = paraXml.matchAll(/<w:r\b[^>]*>[\s\S]*?<\/w:r>/g);
+            for (const rMatch of runMatches) {
+              const runXml = rMatch[0];
+              const run = {};
+
+              const fontMatch = runXml.match(/<w:rFonts[^>]*w:ascii="([^"]+)"/);
+              if (fontMatch) run.font = fontMatch[1];
+
+              const sizeMatch = runXml.match(/<w:sz w:val="(\d+)"/);
+              if (sizeMatch) run.size = `${parseInt(sizeMatch[1], 10) / 2}pt`; // Word half-points → pt
+
+              const colorMatch = runXml.match(/<w:color w:val="([0-9A-Fa-f]{6})"/);
+              if (colorMatch && colorMatch[1].toUpperCase() !== 'AUTO') run.color = `#${colorMatch[1]}`;
+
+              const highlightMatch = runXml.match(/<w:highlight w:val="([^"]+)"/);
+              if (highlightMatch) run.highlight = highlightMatch[1];
+
+              if (runXml.includes('<w:b/>') || runXml.includes('<w:b ')) run.bold = true;
+              if (runXml.includes('<w:i/>') || runXml.includes('<w:i ')) run.italic = true;
+              if (runXml.includes('<w:u ') || runXml.includes('<w:u/>')) run.underline = true;
+
+              const textMatch = runXml.match(/<w:t[^>]*>([\s\S]*?)<\/w:t>/);
+              if (textMatch) run.text = textMatch[1];
+
+              info.runs.push(run);
+            }
+
+            paraStyles.push(info);
+          }
+
+          // ✅ Apply the extracted styles to the HTML mammoth generated
+          const tempDiv = document.createElement('div');
+          tempDiv.innerHTML = finalHtml;
+          const allParagraphs = tempDiv.querySelectorAll('p, h1, h2, h3, h4, h5, h6, div');
+
+          allParagraphs.forEach((p, idx) => {
+            const style = paraStyles[idx];
+            if (!style) return;
+
+            if (style.align) p.style.textAlign = style.align;
+            if (style.indent) p.style.marginLeft = style.indent;
+            if (style.lineHeight) p.style.lineHeight = style.lineHeight;
+
+            // ✅ Apply per-run styling: font, size, color to text spans inside the paragraph
+            if (style.runs && style.runs.length > 0) {
+              // Get all text-bearing children (spans, direct text, formatted spans)
+              const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+              const textNodes = [];
+              let node = walker.nextNode();
+              while (node) { if (node.textContent.trim()) textNodes.push(node); node = walker.nextNode(); }
+
+              // Match runs to text nodes sequentially
+              let runIndex = 0;
+              textNodes.forEach((tn) => {
+                const run = style.runs[Math.min(runIndex, style.runs.length - 1)];
+                if (!run) return;
+                const parent = tn.parentElement;
+                if (parent && parent !== p) {
+                  if (run.font) parent.style.fontFamily = `'${run.font}', serif`;
+                  if (run.size) parent.style.fontSize = run.size;
+                  if (run.color) parent.style.color = run.color;
+                } else {
+                  // Wrap bare text in a span with styling
+                  const span = document.createElement('span');
+                  if (run.font) span.style.fontFamily = `'${run.font}', serif`;
+                  if (run.size) span.style.fontSize = run.size;
+                  if (run.color) span.style.color = run.color;
+                  tn.parentNode.insertBefore(span, tn);
+                  span.appendChild(tn);
+                }
+                runIndex++;
+              });
+            }
+          });
+
+          finalHtml = tempDiv.innerHTML;
         }
-      } catch (zipErr) {}
+      } catch (zipErr) {
+        console.warn('Style extraction failed, using default:', zipErr);
+      }
+
       finalHtml = sanitizeClipboardHtml(finalHtml);
-      if (editorRef.current) { editorRef.current.innerHTML = finalHtml; editorRef.current.focus(); recalcPagination(); showToast('✅ DOCX imported'); if (!title) setTitle(file.name.replace(/\.docx?$/i, '')); }
-    } catch (err) { console.error('DOCX import failed:', err); showToast('⚠ Failed to import'); } finally { setImportingDocx(false); if (fileInputRef.current) fileInputRef.current.value = ''; }
+      if (editorRef.current) {
+        editorRef.current.innerHTML = finalHtml;
+        editorRef.current.focus();
+        recalcPagination();
+        showToast('✅ DOCX imported with original formatting');
+        if (!title) setTitle(file.name.replace(/\.docx?$/i, ''));
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('⚠ Failed to import');
+    } finally {
+      setImportingDocx(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const flushAndClose = () => { if (canMakerEdit && hasUnsavedChanges()) { if (!window.confirm('Unsaved changes. Close anyway?')) return; } onClose && onClose(); };
 
-  // ✅ Attach supports to exactly this HTML reply ID and refresh locally
   const uploadNewSupports = async (parentReplyId) => {
     if (newSupportFiles.length === 0) return;
     for (const file of newSupportFiles) {
       const fd = new FormData();
-      fd.append('notice', noticeId);
-      fd.append('doc_type', 'pending_support');
-      fd.append('file', file);
-      fd.append('reply_version', parentReplyId);
+      fd.append('notice', noticeId); fd.append('doc_type', 'pending_support');
+      fd.append('file', file); fd.append('reply_version', parentReplyId);
       await api.post('/legal-services/notice-documents/', fd);
     }
     setNewSupportFiles([]);
-    
-    // Reload only supports for this specific HTML reply
     try {
       const res = await api.get('/legal-services/notice-documents/', { params: { notice: noticeId } });
       const list = Array.isArray(res.data) ? res.data : (res.data.results || []);
-      // 🔴 STRICT FRONTEND FILTER
-      const mySupports = list.filter(d => 
-        ['pending_support', 'supporting_doc'].includes(d.doc_type) && 
-        String(d.reply_version) === String(parentReplyId)
-      );
+      const mySupports = list.filter(d => ['pending_support', 'supporting_doc'].includes(d.doc_type) && String(d.reply_version) === String(parentReplyId));
       setExistingSupports(mySupports);
     } catch {}
   };
@@ -460,9 +1240,7 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
       let saved;
       if (currentReplyIdRef.current) { saved = await api.patch(`/legal-services/notice-replies/${currentReplyIdRef.current}/`, payload); }
       else { saved = await api.post('/legal-services/notice-replies/', payload); currentReplyIdRef.current = saved.data.id; originalReplyIdRef.current = saved.data.id; }
-      
-      await uploadNewSupports(saved.data.id); // Attach Supports
-
+      await uploadNewSupports(saved.data.id);
       setReply(saved.data); lastSavedRef.current = { title: payload.title, content };
       setSaveStatus('✓ Saved'); setTimeout(() => setSaveStatus(''), 2000);
       loadHistory(); onSaved && onSaved(saved.data, 'save'); showToast('💾 Draft saved');
@@ -490,9 +1268,7 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
       let saved;
       if (currentReplyIdRef.current) { saved = await api.patch(`/legal-services/notice-replies/${currentReplyIdRef.current}/`, payload); }
       else { saved = await api.post('/legal-services/notice-replies/', payload); currentReplyIdRef.current = saved.data.id; originalReplyIdRef.current = saved.data.id; }
-      
-      await uploadNewSupports(saved.data.id); // Attach Supports
-
+      await uploadNewSupports(saved.data.id);
       lastSavedRef.current = { title: payload.title, content };
       const res = await api.post(`/legal-services/notice-replies/${currentReplyIdRef.current}/send-for-review/`);
       setReply(res.data); loadHistory(); onSaved && onSaved(res.data, 'send'); showToast('✅ Sent for review');
@@ -501,7 +1277,7 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
   };
 
   const handleReopen = async () => { setSaving(true); try { const res = await api.post(`/legal-services/notice-replies/${currentReplyIdRef.current}/reopen/`); setReply(res.data); loadHistory(); onSaved && onSaved(res.data, 'reopen'); showToast('📝 Reopened'); } catch (e) { setError('Failed'); } finally { setSaving(false); } };
-  const handleApprove = async (moveToCeo = false) => { setShowAcceptModal(false); setSaving(true); setError(''); try { const cc = getCurrentContent(); if (canCheckerEdit && (title !== lastSavedRef.current.title || cc !== lastSavedRef.current.content)) { await api.patch(`/legal-services/notice-replies/${currentReplyIdRef.current}/`, { title: title.trim(), content_html: cc }); } const endpoint = moveToCeo ? 'escalate' : 'approve'; const res = await api.post(`/legal-services/notice-replies/${currentReplyIdRef.current}/${endpoint}/`); setReply(res.data); onSaved && onSaved(res.data, 'approve'); showToast(moveToCeo ? '↑ Escalated to CEO' : '✅ Reply approved'); setTimeout(() => onClose && onClose(), 800); } catch (e) { setError('Failed'); throw e; } finally { setSaving(false); } };
+  const handleApprove = async (moveToCeo = false) => { setShowAcceptModal(false); setSaving(true); setError(''); try { const cc = getCurrentContent(); if (canCheckerEdit && (title !== lastSavedRef.current.title || cc !== lastSavedRef.current.content)) { await api.patch(`/legal-services/notice-replies/${currentReplyIdRef.current}/`, { title: title.trim(), content_html: cc }); } const endpoint = moveToCeo ? 'escalate' : 'approve'; const res = await api.post(`/legal-services/notice-replies/${currentReplyIdRef.current}/${endpoint}/`); setReply(res.data); onSaved && onSaved(res.data, 'approve'); showToast(moveToCeo ? '↑ Moved to CEO' : '✅ Reply approved'); setTimeout(() => onClose && onClose(), 800); } catch (e) { setError('Failed'); throw e; } finally { setSaving(false); } };
   const handleReject = async (reason) => { try { const res = await api.post(`/legal-services/notice-replies/${currentReplyIdRef.current}/reject/`, { reason }); setReply(res.data); setShowRejectModal(false); onSaved && onSaved(res.data, 'reject'); showToast('❌ Rejected'); setTimeout(() => onClose && onClose(), 800); } catch (e) { throw e; } };
 
   const doDeleteAndReload = async (idToDelete) => {
@@ -550,21 +1326,211 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
 
   useEffect(() => { const handler = (e) => { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); if (canMakerEdit) handleSaveDraft(); } if (e.key === 'Escape' && !expanded && !showSupportModal) flushAndClose(); }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler); }, [canMakerEdit, expanded, title, showSupportModal]);
 
+  // Convert a base64 data URL to a Uint8Array for docx's ImageRun
+  const dataUrlToUint8Array = (dataUrl) => {
+    const base64 = dataUrl.split(',')[1];
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  };
+
+  // Builds a docx ImageRun (or null on failure) from an <img> element
+  const buildImageRun = (imgEl) => {
+    const src = imgEl.getAttribute('src') || '';
+    if (!src.startsWith('data:image/')) return null;
+    try {
+      const bytes = dataUrlToUint8Array(src);
+      // Prefer the resize-wrapper's inline width/height (px), fall back to img attrs, then a sane default
+      const wrap = imgEl.closest('.re-img-wrap');
+      const wrapW = wrap ? parseInt(wrap.style.width, 10) : NaN;
+      const wrapH = wrap ? parseInt(wrap.style.height, 10) : NaN;
+      let width = !isNaN(wrapW) ? wrapW : (parseInt(imgEl.getAttribute('width'), 10) || imgEl.naturalWidth || 300);
+      let height = !isNaN(wrapH) ? wrapH : (parseInt(imgEl.getAttribute('height'), 10) || imgEl.naturalHeight || 200);
+      // Cap width so it fits within the page content area (~6.5in usable at 96px/in ≈ 624px)
+      const maxW = 500;
+      if (width > maxW) { height = Math.round(height * (maxW / width)); width = maxW; }
+      return new ImageRun({ data: bytes, transformation: { width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)) } });
+    } catch (e) {
+      console.warn('Failed to embed image in DOCX', e);
+      return null;
+    }
+  };
+
   const htmlToDocxParagraphs = (html) => {
     const temp = document.createElement('div'); temp.innerHTML = html; const paragraphs = [];
-    const processRuns = (node, styles = {}) => { if (node.nodeType === Node.TEXT_NODE) { const t = node.textContent; if (!t) return []; return [new TextRun({ text: t, bold: styles.bold, italics: styles.italic, underline: styles.underline ? {} : undefined, strike: styles.strike, size: styles.size || 24, font: styles.font || 'Times New Roman' })]; } if (node.nodeType !== Node.ELEMENT_NODE) return []; const tag = node.tagName.toLowerCase(); const ns = { ...styles }; if (tag==='b'||tag==='strong') ns.bold = true; if (tag==='i'||tag==='em') ns.italic = true; if (tag==='u') ns.underline = true; if (tag==='s'||tag==='strike') ns.strike = true; const runs = []; node.childNodes.forEach(ch => { runs.push(...processRuns(ch, ns)); }); return runs; };
+
+    const processRuns = (node, styles = {}) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const t = node.textContent; if (!t) return [];
+        return [new TextRun({ text: t, bold: styles.bold, italics: styles.italic, underline: styles.underline ? {} : undefined, strike: styles.strike, size: styles.size || 24, font: styles.font || 'Times New Roman' })];
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) return [];
+      const tag = node.tagName.toLowerCase();
+      if (tag === 'img') return []; // images are never inline runs — handled as their own paragraph
+      const ns = { ...styles };
+      if (tag==='b'||tag==='strong') ns.bold = true;
+      if (tag==='i'||tag==='em') ns.italic = true;
+      if (tag==='u') ns.underline = true;
+      if (tag==='s'||tag==='strike') ns.strike = true;
+      const runs = [];
+      node.childNodes.forEach(ch => { runs.push(...processRuns(ch, ns)); });
+      return runs;
+    };
+
+    const processMixedBlock = (el, alignment, baseStyles = {}) => {
+      let currentRuns = [];
+      const flush = () => {
+        if (currentRuns.length) { paragraphs.push(new Paragraph({ alignment, children: currentRuns })); currentRuns = []; }
+      };
+      const walk = (node) => {
+        if (node.nodeType === Node.TEXT_NODE) { currentRuns.push(...processRuns(node, baseStyles)); return; }
+        if (node.nodeType !== Node.ELEMENT_NODE) return;
+        const tag = node.tagName.toLowerCase();
+        if (tag === 'img') {
+          flush();
+          const imgRun = buildImageRun(node);
+          if (imgRun) paragraphs.push(new Paragraph({ alignment, children: [imgRun] }));
+          return;
+        }
+        // .re-img-wrap span / re-img-resize-handle div — just recurse into children
+        if (tag === 'span' && node.querySelector && node.querySelector('img')) {
+          Array.from(node.childNodes).forEach(walk);
+          return;
+        }
+        currentRuns.push(...processRuns(node, baseStyles));
+      };
+      Array.from(el.childNodes).forEach(walk);
+      flush();
+      if (paragraphs.length === 0 || (currentRuns.length === 0 && !el.querySelector('img'))) {
+        // ensure at least an empty paragraph exists for genuinely empty blocks
+      }
+    };
+
+
+    // Returns true if a cell has any real content (element children, or non-nbsp/non-blank text)
+    const cellHasContent = (cell) => {
+      if (cell.querySelector('img, table')) return true;
+      const text = (cell.textContent || '').replace(/\u00A0/g, ' ').trim();
+      return text.length > 0;
+    };
+
+    const buildCellParagraphs = (cell) => {
+      const cellParagraphs = [];
+      const walk = (node) => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const t = node.textContent.replace(/\u00A0/g, ' ');
+          if (t.trim()) cellParagraphs.push(new Paragraph({ children: [new TextRun({ text: t, size: 22, font: 'Times New Roman' })] }));
+          return;
+        }
+        if (node.nodeType !== Node.ELEMENT_NODE) return;
+        const tag = node.tagName.toLowerCase();
+        if (tag === 'img') {
+          const imgRun = buildImageRun(node);
+          if (imgRun) cellParagraphs.push(new Paragraph({ children: [imgRun] }));
+          return;
+        }
+        if (tag === 'table') {
+          const nested = buildDocxTable(node);
+          if (nested) cellParagraphs.push(nested);
+          return;
+        }
+        if (tag === 'p' || tag === 'div' || tag === 'li') {
+          const runs = processRuns(node);
+          if (runs.length) cellParagraphs.push(new Paragraph({ children: runs }));
+          Array.from(node.childNodes).forEach(child => { if (child.nodeType === Node.ELEMENT_NODE && (child.tagName.toLowerCase() === 'table' || child.tagName.toLowerCase() === 'img')) walk(child); });
+          return;
+        }
+        if (tag === 'br') { cellParagraphs.push(new Paragraph({ children: [new TextRun('')] })); return; }
+        Array.from(node.childNodes).forEach(walk);
+      };
+      Array.from(cell.childNodes).forEach(walk);
+      if (cellParagraphs.length === 0) cellParagraphs.push(new Paragraph({ children: [new TextRun('')] }));
+      return cellParagraphs;
+    };
+
+    const buildDocxTable = (tableEl) => {
+      const rows = Array.from(tableEl.querySelectorAll(':scope > tr, :scope > tbody > tr, :scope > thead > tr'));
+      if (rows.length === 0) return null;
+      const docxRows = rows.map((tr) => {
+        const cells = Array.from(tr.children).filter(c => c.tagName === 'TD' || c.tagName === 'TH');
+        const docxCells = cells.map((cell) => {
+          const colspan = parseInt(cell.getAttribute('colspan'), 10) || 1;
+          const rowspan = parseInt(cell.getAttribute('rowspan'), 10) || 1;
+          return new TableCell({
+            children: cellHasContent(cell) ? buildCellParagraphs(cell) : [new Paragraph({ children: [new TextRun('')] })],
+            columnSpan: colspan > 1 ? colspan : undefined,
+            rowSpan: rowspan > 1 ? rowspan : undefined,
+            verticalAlign: VerticalAlign.TOP,
+            width: { size: Math.floor(100 / cells.length), type: WidthType.PERCENTAGE },
+          });
+        });
+        return new TableRow({ children: docxCells });
+      });
+      return new Table({ rows: docxRows, width: { size: 100, type: WidthType.PERCENTAGE } });
+    };
+
+
     const processElement = (el) => {
-      if (el.nodeType === Node.TEXT_NODE) { const t = el.textContent.trim(); if (t) paragraphs.push(new Paragraph({ children: [new TextRun({ text: t, size: 24, font: 'Times New Roman' })] })); return; } if (el.nodeType !== Node.ELEMENT_NODE) return; const tag = el.tagName.toLowerCase(); const align = el.style.textAlign; const alignment = align === 'center' ? AlignmentType.CENTER : align === 'right' ? AlignmentType.RIGHT : align === 'justify' ? AlignmentType.JUSTIFIED : AlignmentType.LEFT;
-      if (tag==='h1') paragraphs.push(new Paragraph({ heading: HeadingLevel.HEADING_1, alignment, children: processRuns(el, { bold: true, size: 32 }) })); else if (tag==='h2') paragraphs.push(new Paragraph({ heading: HeadingLevel.HEADING_2, alignment, children: processRuns(el, { bold: true, size: 28 }) })); else if (tag==='h3') paragraphs.push(new Paragraph({ heading: HeadingLevel.HEADING_3, alignment, children: processRuns(el, { bold: true, size: 26 }) })); else if (tag==='p'||tag==='div') { const runs = processRuns(el); if (runs.length) paragraphs.push(new Paragraph({ alignment, children: runs })); else paragraphs.push(new Paragraph({ alignment, children: [new TextRun('')] })); } else if (tag==='ul'||tag==='ol') { el.querySelectorAll('li').forEach(li => { paragraphs.push(new Paragraph({ bullet: tag==='ul' ? { level: 0 } : undefined, children: processRuns(li) })); }); } else if (tag==='br') paragraphs.push(new Paragraph({ children: [new TextRun('')] })); else Array.from(el.childNodes).forEach(processElement);
-    }; Array.from(temp.childNodes).forEach(processElement); return paragraphs;
+      if (el.nodeType === Node.TEXT_NODE) { const t = el.textContent.trim(); if (t) paragraphs.push(new Paragraph({ children: [new TextRun({ text: t, size: 24, font: 'Times New Roman' })] })); return; }
+      if (el.nodeType !== Node.ELEMENT_NODE) return;
+      const tag = el.tagName.toLowerCase();
+      const align = el.style.textAlign;
+      const alignment = align === 'center' ? AlignmentType.CENTER : align === 'right' ? AlignmentType.RIGHT : align === 'justify' ? AlignmentType.JUSTIFIED : AlignmentType.LEFT;
+
+      // ✅ NEW: top-level standalone <img> (not wrapped in a <p>/<div>)
+      if (tag === 'img') {
+        const imgRun = buildImageRun(el);
+        if (imgRun) paragraphs.push(new Paragraph({ alignment, children: [imgRun] }));
+        return;
+      }
+
+      if (tag==='h1') paragraphs.push(new Paragraph({ heading: HeadingLevel.HEADING_1, alignment, children: processRuns(el, { bold: true, size: 32 }) }));
+      else if (tag==='h2') paragraphs.push(new Paragraph({ heading: HeadingLevel.HEADING_2, alignment, children: processRuns(el, { bold: true, size: 28 }) }));
+      else if (tag==='h3') paragraphs.push(new Paragraph({ heading: HeadingLevel.HEADING_3, alignment, children: processRuns(el, { bold: true, size: 26 }) }));
+      else if (tag==='p'||tag==='div') {
+        // ✅ CHANGED: if this block contains an image anywhere inside it, use the
+        // mixed-content walker so the image doesn't get silently dropped.
+        if (el.querySelector('img')) {
+          processMixedBlock(el, alignment);
+        } else {
+          const runs = processRuns(el);
+          if (runs.length) paragraphs.push(new Paragraph({ alignment, children: runs }));
+          else paragraphs.push(new Paragraph({ alignment, children: [new TextRun('')] }));
+        }
+      }
+      else if (tag==='ul'||tag==='ol') { el.querySelectorAll('li').forEach(li => { paragraphs.push(new Paragraph({ bullet: tag==='ul' ? { level: 0 } : undefined, children: processRuns(li) })); }); }
+      else if (tag==='br') paragraphs.push(new Paragraph({ children: [new TextRun('')] }));
+      else if (tag==='table') { const t = buildDocxTable(el); if (t) paragraphs.push(t); }
+      else Array.from(el.childNodes).forEach(processElement);
+    };
+
+    Array.from(temp.childNodes).forEach(processElement);
+    return paragraphs;
   };
   const handleDownloadDocx = async () => { if (!canDownload) return showToast('⚠ Downloads only after approval'); try { const content = reply?.content_html || getCurrentContent(); if (!content || !content.trim()) return showToast('⚠ No content to download'); const paragraphs = htmlToDocxParagraphs(content); if (paragraphs.length === 0) paragraphs.push(new Paragraph({ children: [new TextRun('')] })); const doc = new Document({ sections: [{ properties: { page: { margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 } } }, children: paragraphs }] }); const blob = await Packer.toBlob(doc); saveAs(blob, `${(title || 'reply').replace(/[^a-z0-9]/gi, '_')}.docx`); showToast('✅ DOCX downloaded'); } catch (e) { showToast('⚠ Download failed'); } };
-  const handleDownloadPdf = () => { if (!canDownload) return showToast('⚠ Downloads only after approval'); try { const content = reply?.content_html || getCurrentContent(); if (!content || !content.trim()) return showToast('⚠ No content to download'); const wrapper = document.createElement('div'); wrapper.style.fontFamily = "'Times New Roman', Times, serif"; wrapper.style.fontSize = '12pt'; wrapper.style.lineHeight = '1.5'; wrapper.style.color = '#1a1a2e'; wrapper.style.padding = '20px'; wrapper.style.background = '#fff'; wrapper.style.width = '700px'; wrapper.innerHTML = content; wrapper.querySelectorAll('table').forEach(t => { t.style.borderCollapse = 'collapse'; t.style.width = '100%'; }); wrapper.querySelectorAll('td, th').forEach(cell => { cell.style.border = '1px solid #333'; cell.style.padding = '4px 8px'; }); document.body.appendChild(wrapper); html2pdf().set({ margin: [0.8, 0.8, 0.8, 0.8], filename: `${(title || 'reply').replace(/[^a-z0-9]/gi, '_')}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true, scrollY: 0 }, jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' } }).from(wrapper).save().then(() => { document.body.removeChild(wrapper); showToast('✅ PDF downloaded'); }).catch(() => { if (wrapper.parentNode) document.body.removeChild(wrapper); showToast('⚠ PDF failed'); }); } catch { showToast('⚠ PDF failed'); } };
+  // const handleDownloadPdf = () => { if (!canDownload) return showToast('⚠ Downloads only after approval'); try { const content = reply?.content_html || getCurrentContent(); if (!content || !content.trim()) return showToast('⚠ No content to download'); const wrapper = document.createElement('div'); wrapper.style.fontFamily = "'Times New Roman', Times, serif"; wrapper.style.fontSize = '12pt'; wrapper.style.lineHeight = '1.5'; wrapper.style.color = '#1a1a2e'; wrapper.style.padding = '20px'; wrapper.style.background = '#fff'; wrapper.style.width = '700px'; wrapper.innerHTML = content; wrapper.querySelectorAll('table').forEach(t => { t.style.borderCollapse = 'collapse'; t.style.width = '100%'; }); wrapper.querySelectorAll('td, th').forEach(cell => { cell.style.border = '1px solid #333'; cell.style.padding = '4px 8px'; }); document.body.appendChild(wrapper); html2pdf().set({ margin: [0.8, 0.8, 0.8, 0.8], filename: `${(title || 'reply').replace(/[^a-z0-9]/gi, '_')}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true, scrollY: 0 }, jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' } }).from(wrapper).save().then(() => { document.body.removeChild(wrapper); showToast('✅ PDF downloaded'); }).catch(() => { if (wrapper.parentNode) document.body.removeChild(wrapper); showToast('⚠ PDF failed'); }); } catch { showToast('⚠ PDF failed'); } };
+
+  const handleDownloadPdf = () => {
+    if (!canDownload) return showToast('⚠ Downloads only after approval');
+    const content = reply?.content_html || getCurrentContent();
+    if (!content || !content.trim()) return showToast('⚠ No content to download');
+
+    const filename = (title || 'reply').replace(/[^a-z0-9]/gi, '_');
+    showToast('🖨 Opening print dialog… choose "Save as PDF"');
+
+    downloadAsPdfViaPrint(
+      content,
+      filename,
+      () => {}, // print dialog opened successfully — nothing else to do
+      () => showToast('⚠ PDF export failed')
+    );
+  };
 
   const statusMeta = STATUS_META[status] || STATUS_META.draft;
   const isOrangeTheme = isLastReply;
   const headerBg = isOrangeTheme ? `linear-gradient(135deg, ${C.orange}, ${C.orangeLight})` : C.navy;
-  const toolbarBg = isOrangeTheme ? `linear-gradient(135deg, ${C.orangeDark}, ${C.orange})` : '';
+  const toolbarBg = isOrangeTheme ? `linear-gradient(135deg, ${C.orange}, ${C.orangeLight})` : C.navy; 
   const totalSupports = existingSupports.length + newSupportFiles.length;
 
   return createPortal(
@@ -576,7 +1542,6 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
         <div style={{ background: headerBg, padding: '6px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexShrink: 0, transition: 'background 0.3s' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
             <span style={{ color: '#fff', flexShrink: 0 }}><FileIcon /></span>
-            {/* ✅ UPDATED: White input styling for title */}
             <input 
               value={title} onChange={(e) => setTitle(e.target.value)} disabled={!canEditContent} placeholder="Enter file name..." 
               style={{ background: '#fff', border: '1px solid #ccc', borderRadius: 4, padding: '4px 10px', color: C.ink, fontSize: 13, fontWeight: 600, outline: 'none', width: 220, fontFamily: 'inherit', boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.1)' }} 
@@ -588,15 +1553,12 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
             {(canMakerEdit || (isLastReply && status !== 'draft')) && (
               <label style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', border: `1px solid ${isLastReply ? '#F97316' : 'rgba(255,255,255,0.2)'}`, borderRadius: 4, background: isLastReply ? 'rgba(249,115,22,0.2)' : 'rgba(255,255,255,0.06)', cursor: canMakerEdit ? 'pointer' : 'default', fontSize: 10, fontWeight: 700, color: '#fff', opacity: canMakerEdit ? 1 : 0.7, whiteSpace: 'nowrap' }}>
-                <input type="checkbox" checked={isLastReply} onChange={(e) => canMakerEdit && setIsLastReply(e.target.checked)} disabled={!canMakerEdit} style={{ width: 12, height: 12, margin: 0, accentColor: '#F97316' }} /> 🏁 Last Reply
+                <input type="checkbox" checked={isLastReply} onChange={(e) => canMakerEdit && setIsLastReply(e.target.checked)} disabled={!canMakerEdit} style={{ width: 12, height: 12, margin: 0, accentColor: '#F97316' }} /> Last Reply
               </label>
             )}
-            
-            {/* ✅ NEW: 📎 Button accessible if user can edit OR there are attached files (so checker can see them) */}
             {(canEditContent || totalSupports > 0) && (
               <HdrBtn title="Supporting Docs" onClick={toggleSupports} active={showSupports} badge={totalSupports || null}><PaperclipIcon /></HdrBtn>
             )}
-
             {replyHistory.length > 0 && !isReviewMode && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '2px 4px', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 4 }}>
                 <HdrBtn onClick={() => navigateDraft('prev')} disabled={!hasPrevDraft} small><ChevronLeftIcon /></HdrBtn>
@@ -615,7 +1577,7 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
         <StatusBanner status={status} reply={reply} isReviewMode={isReviewMode} isAssignedChecker={isAssignedChecker} isCeoRole={isCeoRole} />
 
         {/* TOOLBAR */}
-        <div className="re-toolbar" style={toolbarBg ? { background: toolbarBg } : {}}>
+        <div className="re-toolbar" style={{ background: toolbarBg }}>
           {canEditContent && (
             <>
               <input ref={fileInputRef} type="file" accept=".docx,.doc,image/*" onChange={handleDocxUpload} style={{ display: 'none' }} />
@@ -625,11 +1587,33 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
           )}
           <button onMouseDown={e=>e.preventDefault()} onClick={() => runCommand('undo')} disabled={!canEditContent} title="Undo">↶</button>
           <button onMouseDown={e=>e.preventDefault()} onClick={() => runCommand('redo')} disabled={!canEditContent} title="Redo">↷</button>
+          <button className={paintActive ? 'paint-active' : ''} onMouseDown={e=>e.preventDefault()} onClick={toggleFormatPainter} disabled={!canEditContent} title="Format Painter — select formatted text, click here, then select target text"><IconPaintbrush /></button>
           <div className="divider" />
           <button onMouseDown={e=>e.preventDefault()} onClick={() => runCommand('bold')} disabled={!canEditContent}><strong>B</strong></button>
           <button onMouseDown={e=>e.preventDefault()} onClick={() => runCommand('italic')} disabled={!canEditContent}><em>I</em></button>
           <button onMouseDown={e=>e.preventDefault()} onClick={() => runCommand('underline')} disabled={!canEditContent}><u>U</u></button>
           <button onMouseDown={e=>e.preventDefault()} onClick={() => runCommand('strikeThrough')} disabled={!canEditContent}><s>S</s></button>
+          <button onMouseDown={e=>e.preventDefault()} onClick={() => runCommand('subscript')} disabled={!canEditContent} title="Subscript" style={{fontSize:11}}>X<sub>2</sub></button>
+          <button onMouseDown={e=>e.preventDefault()} onClick={() => runCommand('superscript')} disabled={!canEditContent} title="Superscript" style={{fontSize:11}}>X<sup>2</sup></button>
+          <div className="divider" />
+          <Select
+            value={undefined}
+            placeholder="Style"
+            onChange={(val) => { isDropdownOpenRef.current = false; applyParagraphStyle(val); }}
+            onDropdownVisibleChange={(open) => { isDropdownOpenRef.current = open; }}
+            disabled={!canEditContent}
+            size="small"
+            style={{ width: 100 }}
+            getPopupContainer={t => t.parentNode}
+            options={[
+              { value: 'P', label: 'Normal' },
+              { value: 'H1', label: 'Heading 1' },
+              { value: 'H2', label: 'Heading 2' },
+              { value: 'H3', label: 'Heading 3' },
+              { value: 'title', label: 'Title' },
+              { value: 'BLOCKQUOTE', label: 'Quote' },
+            ]}
+          />
           <div className="divider" />
           <span style={{fontSize:10,color:'#999',marginRight:2}}>Font</span>
           <Select value={fontFamily} onChange={(val) => { isDropdownOpenRef.current = false; applyFontFamily(val); }} onDropdownVisibleChange={(open) => { isDropdownOpenRef.current = open; }} disabled={!canEditContent} size="small" style={{ width: 140 }} popupMatchSelectWidth={false} getPopupContainer={t=>t.parentNode} options={[{value:"'Times New Roman', Times, serif",label:'Times New Roman'},{value:"'Calibri', sans-serif",label:'Calibri'},{value:"'Arial', sans-serif",label:'Arial'},{value:"'Georgia', serif",label:'Georgia'},{value:"'Verdana', sans-serif",label:'Verdana'},{value:"'Courier New', monospace",label:'Courier New'}]} />
@@ -642,6 +1626,22 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
             <button onMouseDown={e=>e.preventDefault()} onClick={() => applyHighlight(highlightColor)} disabled={!canEditContent} style={{ padding:'2px 5px', borderRadius:'3px 0 0 3px', border:'1px solid rgba(255,255,255,0.2)', borderRight:'none', background:'transparent', cursor:canEditContent?'pointer':'not-allowed', display:'flex', alignItems:'center', height:26, minWidth:0 }}><span style={{ fontSize:11, fontWeight:800, padding:'1px 4px', background:highlightColor, color:'#000', borderRadius:2, lineHeight:1 }}>ab</span></button>
             <label style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:26, border:'1px solid rgba(255,255,255,0.2)', borderRadius:'0 3px 3px 0', background:'transparent', cursor:canEditContent?'pointer':'not-allowed', margin:0, padding:0, position:'relative', opacity:canEditContent?1:0.35 }}><span style={{fontSize:8,color:'#ccc'}}>▼</span><input type="color" value={highlightColor} onChange={(e) => { setHighlightColor(e.target.value); setTimeout(() => applyHighlight(e.target.value), 50); }} disabled={!canEditContent} style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', opacity:0, cursor:canEditContent?'pointer':'not-allowed' }} /></label>
           </div>
+          <Select
+            value={undefined}
+            placeholder="Case"
+            onChange={(val) => { isDropdownOpenRef.current = false; applyChangeCase(val); }}
+            onDropdownVisibleChange={(open) => { isDropdownOpenRef.current = open; }}
+            disabled={!canEditContent}
+            size="small"
+            style={{ width: 110 }}
+            getPopupContainer={t => t.parentNode}
+            options={[
+              { value: 'upper', label: 'UPPERCASE' },
+              { value: 'lower', label: 'lowercase' },
+              { value: 'title', label: 'Title Case' },
+              { value: 'sentence', label: 'Sentence case' },
+            ]}
+          />
           <Select value={lineHeight} onChange={(val) => { isDropdownOpenRef.current = false; applyLineHeight(val); }} onDropdownVisibleChange={(open) => { isDropdownOpenRef.current = open; }} disabled={!canEditContent} size="small" style={{ width: 58 }} getPopupContainer={t=>t.parentNode} options={['1.0','1.15','1.4','1.6','2.0','2.5'].map(l=>({value:l,label:l}))} />
           <div className="divider" />
           <button className="re-icon-btn" onMouseDown={e=>e.preventDefault()} onClick={() => runCommand('justifyLeft')} disabled={!canEditContent}><IconAlignLeft /></button>
@@ -651,11 +1651,14 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
           <div className="divider" />
           <button onMouseDown={e=>e.preventDefault()} onClick={() => insertList('disc', false)} disabled={!canEditContent} title="Bullets" style={{fontSize:14}}>•</button>
           <button onMouseDown={e=>e.preventDefault()} onClick={() => insertList('decimal', true)} disabled={!canEditContent} title="Numbering" style={{fontSize:12}}>1.</button>
-          <button onMouseDown={e=>e.preventDefault()} onClick={() => runCommand('outdent')} disabled={!canEditContent}>⇤</button>
-          <button onMouseDown={e=>e.preventDefault()} onClick={() => runCommand('indent')} disabled={!canEditContent}>⇥</button>
           <div className="divider" />
-          <button className="re-icon-btn" onMouseDown={e=>e.preventDefault()} onClick={insertTable} disabled={!canEditContent} title="Insert Table"><IconTable /></button>
-          <button onMouseDown={e=>e.preventDefault()} onClick={() => runCommand('removeFormat')} disabled={!canEditContent} style={{fontSize:11}}>Tx</button>
+          <button className="re-icon-btn" onMouseDown={e=>e.preventDefault()} onClick={insertTable} disabled={!canEditContent} title="Insert Table (right-click cell for options)"><IconTable /></button>
+          <button className="re-icon-btn" onMouseDown={e=>e.preventDefault()} onClick={() => {
+            const sel = window.getSelection();
+            pendingImageRangeRef.current = sel && sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
+            imageInputRef.current?.click();
+          }} disabled={!canEditContent} title="Insert Image (drag corner to resize)"><IconImage /></button>
+          <input ref={imageInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { const file = e.target.files?.[0]; if (file) insertImageFile(file, pendingImageRangeRef.current); e.target.value = ''; }} />
         </div>
 
         {/* EDITOR AREA */}
@@ -664,14 +1667,13 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
             {loading ? <div style={{ padding: 60, textAlign: 'center', color: C.muted }}><div style={{ fontSize: 32, marginBottom: 10 }}>⏳</div>Loading document...</div> : (
               <div className="re-page-shell" style={{ transform: `scale(${zoom / 100})` }}>
                 <div className="re-editor-wrap">
-                  <div ref={editorRef} className="re-editor" contentEditable={true} suppressContentEditableWarning data-placeholder="Start typing your reply here, paste from Word (Ctrl+V), or import a DOCX file from the toolbar." data-empty={isEditorEmpty ? 'true' : undefined} onInput={() => scheduleMeasure(false)} onPaste={handlePaste} onKeyDown={handleKeyDown} onBlur={() => scheduleMeasure(true)} style={{ fontFamily, fontSize, lineHeight, color: textColor }} />
+                  <div ref={editorRef} className={`re-editor${paintActive ? ' paint-mode' : ''}${!canEditContent ? ' read-only' : ''}`} contentEditable={canEditContent} suppressContentEditableWarning data-placeholder="Start typing your reply here, paste from Word (Ctrl+V), or import a DOCX file from the toolbar." data-empty={isEditorEmpty ? 'true' : undefined} onInput={() => scheduleMeasure(false)} onPaste={handlePaste} onKeyDown={handleKeyDown} onMouseUp={handleEditorMouseUp} onContextMenu={handleEditorContextMenu} onBlur={() => scheduleMeasure(true)} style={{ fontFamily, fontSize, lineHeight, color: textColor }} />
                 </div>
               </div>
             )}
             {error && <div style={{ position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)', padding: '10px 14px', background: C.redBg, border: `1px solid ${C.redBorder}`, borderRadius: 6, color: C.red, fontSize: 12, fontWeight: 600, zIndex: 10 }}>⚠ {error} <button onClick={() => setError('')} style={{ float: 'right', background: 'none', border: 'none', color: C.red, cursor: 'pointer', fontSize: 14, fontWeight: 700 }}>×</button></div>}
           </div>
           
-          {/* ✅ SIDEBARS (Mutually Exclusive) */}
           {showHistory && !isReviewMode && <HistorySidebar replies={replyHistory} currentReplyId={currentReplyIdRef.current} originalReplyId={originalReplyIdRef.current} currentUserId={currentUserId} onSelectReply={(r) => switchToReply(r.id)} onBackToCurrent={goBackToCurrent} onDelete={handleDeleteFromHistory} onClose={() => setShowHistory(false)} />}
           
           {showSupports && (
@@ -719,7 +1721,33 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
         </div>
       </div>
 
-      {/* Modals */}
+      {/* Table Context Menu */}
+      {tableMenuPos && (
+        <div className="re-table-context-menu" style={{ left: tableMenuPos.x, top: tableMenuPos.y }}>
+          <button onClick={() => { insertTableRow(true); setTableMenuPos(null); }}>➕ Insert Row Above</button>
+          <button onClick={() => { insertTableRow(false); setTableMenuPos(null); }}>➕ Insert Row Below</button>
+          <button className="danger" onClick={() => { deleteTableRow(); setTableMenuPos(null); }}>🗑 Delete Row</button>
+          <div className="re-table-context-menu-sep" />
+          <button onClick={() => { insertTableColumn(true); setTableMenuPos(null); }}>➕ Insert Column Left</button>
+          <button onClick={() => { insertTableColumn(false); setTableMenuPos(null); }}>➕ Insert Column Right</button>
+          <button className="danger" onClick={() => { deleteTableColumn(); setTableMenuPos(null); }}>🗑 Delete Column</button>
+          <div className="re-table-context-menu-sep" />
+          <button className="danger" onClick={() => { deleteWholeTable(); setTableMenuPos(null); }}>🗑 Delete Entire Table</button>
+        </div>
+      )}
+
+      {imageMenuPos && (
+        <div className="re-table-context-menu" style={{ left: imageMenuPos.x, top: imageMenuPos.y }}>
+          <button onClick={() => { setImageAlignment('left'); setImageMenuPos(null); }}>⬅ Align Left</button>
+          <button onClick={() => { setImageAlignment('center'); setImageMenuPos(null); }}>⬍ Align Center</button>
+          <button onClick={() => { setImageAlignment('right'); setImageMenuPos(null); }}>➡ Align Right</button>
+          <div className="re-table-context-menu-sep" />
+          <button onClick={() => { resetImageSize(); setImageMenuPos(null); }}>↺ Reset Size</button>
+          <div className="re-table-context-menu-sep" />
+          <button className="danger" onClick={() => { deleteImage(); setImageMenuPos(null); }}>🗑 Delete Image</button>
+        </div>
+      )}  
+
       {toast && <div style={{ position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', background: C.ink, color: '#fff', padding: '10px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: '0 10px 30px rgba(0,0,0,0.25)', zIndex: 999999 }}>{toast}</div>}
       {showConfirmSend && <ConfirmDialog icon="📤" title="Send for Review?" message="Reply and attachments will be sent to checker." confirmLabel="Send" confirmColor={C.navyLight} onConfirm={handleSendForReview} onCancel={() => setShowConfirmSend(false)} />}
       {showConfirmDelete && <ConfirmDialog icon="🗑" title="Delete Draft?" message={`"${title || 'Untitled'}" and its attachments will be permanently deleted.`} confirmLabel="Delete" confirmColor={C.red} onConfirm={handleDeleteDraft} onCancel={() => setShowConfirmDelete(false)} />}
@@ -731,11 +1759,34 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
 }
 
 // ═══════════════════════════════════════════════════════════════
-// HELPER COMPONENTS
+// HELPER COMPONENTS (unchanged)
 // ═══════════════════════════════════════════════════════════════
 function HdrBtn({ children, onClick, title, active, badge, disabled, small }) {
   const [hover, setHover] = useState(false); const size = small ? 20 : 24;
-  return <button onClick={disabled ? undefined : onClick} title={title} disabled={disabled} onMouseEnter={() => !disabled && setHover(true)} onMouseLeave={() => setHover(false)} style={{ position: 'relative', width: size, height: size, border: `1px solid ${active ? '#fff' : 'rgba(255,255,255,0.15)'}`, borderRadius: 4, background: active ? 'rgba(255,255,255,0.85)' : (hover ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.05)'), color: disabled ? 'rgba(255,255,255,0.25)' : (active ? C.navyLight : '#fff'), cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>{children}{badge && <span style={{ position: 'absolute', top: -4, right: -4, background: C.red, color: '#fff', fontSize: 7, fontWeight: 800, padding: '1px 3px', borderRadius: 99, minWidth: 10, textAlign: 'center', border: '1px solid #fff' }}>{badge}</span>}</button>;
+  return <button 
+    onClick={disabled ? undefined : onClick} 
+    title={title} 
+    disabled={disabled} 
+    onMouseEnter={() => !disabled && setHover(true)} 
+    onMouseLeave={() => setHover(false)} 
+    style={{ 
+      position: 'relative', width: size, height: size, 
+      // ✅ Brighter border for visibility on lighter navy background
+      border: `1px solid ${active ? '#fff' : 'rgba(255,255,255,0.35)'}`,
+      borderRadius: 4, 
+      background: active ? 'rgba(255,255,255,0.9)' : (hover ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.12)'),
+      color: disabled ? 'rgba(255, 255, 255, 0.64)' : (active ? C.navyLight : '#fff'), 
+      cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.55 : 1, 
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
+      transition: 'all .12s ease',
+    }}>
+    {children}
+    {badge && <span style={{ 
+      position: 'absolute', top: -4, right: -4, background: C.red, color: '#fff', 
+      fontSize: 7, fontWeight: 800, padding: '1px 3px', borderRadius: 99, 
+      minWidth: 10, textAlign: 'center', border: '1px solid #fff' 
+    }}>{badge}</span>}
+  </button>;
 }
 function ZoomBtn({ children, onClick }) { return <button onClick={onClick} style={{ width: 20, height: 20, border: 'none', background: 'transparent', color: '#666', cursor: 'pointer', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, borderRadius: 3 }}>{children}</button>; }
 function ActionBtn({ children, onClick, disabled, title, green, amber, navy, primary, danger, success }) {
@@ -745,9 +1796,9 @@ function ActionBtn({ children, onClick, disabled, title, green, amber, navy, pri
 function StatusBanner({ status, reply, isReviewMode, isAssignedChecker, isCeoRole }) {
   if (!reply || status === 'draft') return null;
   if (status === 'rejected') return <div style={{ padding: '6px 14px', background: C.redBg, borderBottom: `1px solid ${C.redBorder}`, display: 'flex', alignItems: 'flex-start', gap: 8, flexShrink: 0 }}><span style={{ fontSize: 14 }}>❌</span><div style={{ flex: 1 }}><div style={{ fontSize: 11, fontWeight: 700, color: C.red, marginBottom: 2 }}>Rejected {reply.reviewed_by_name && `by ${reply.reviewed_by_name}`}</div>{reply.review_note && <div style={{ fontSize: 11, color: C.red }}><b>Reason:</b> {reply.review_note}</div>}</div></div>;
-  if (status === 'approved') return <div style={{ padding: '5px 14px', background: C.greenBg, borderBottom: `1px solid ${C.greenBorder}`, display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}><span>✅</span><span style={{ fontSize: 11, color: C.green, fontWeight: 600 }}><b>Approved</b> · Downloads available</span></div>;
+  if (status === 'approved') return <div style={{ padding: '5px 14px', background: C.greenBg, borderBottom: `1px solid ${C.greenBorder}`, display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}><span>✅</span><span style={{ fontSize: 11, color: C.green, fontWeight: 600 }}><b>Approved · Read-Only</b> · Downloads available</span></div>;
   if (status === 'pending') return <div style={{ padding: '5px 14px', background: C.amberBg, borderBottom: `1px solid ${C.amberBorder}`, display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}><span>⏳</span><span style={{ fontSize: 11, color: C.amber, fontWeight: 600 }}>{isReviewMode && (isAssignedChecker || isCeoRole) ? <b>Your Review Required</b> : <b>Awaiting Review</b>}</span></div>;
-  if (status === 'escalated') return <div style={{ padding: '5px 14px', background: C.purpleBg, borderBottom: `1px solid ${C.purpleBorder}`, display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}><span>↑</span><span style={{ fontSize: 11, color: C.purple, fontWeight: 600 }}><b>Escalated to CEO</b></span></div>;
+  if (status === 'escalated') return <div style={{ padding: '5px 14px', background: C.purpleBg, borderBottom: `1px solid ${C.purpleBorder}`, display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}><span>↑</span><span style={{ fontSize: 11, color: C.purple, fontWeight: 600 }}><b>Moved to CEO</b></span></div>;
   return null;
 }
 function HistorySidebar({ replies, currentReplyId, originalReplyId, currentUserId, onSelectReply, onBackToCurrent, onDelete, onClose }) {
@@ -763,7 +1814,6 @@ function HistorySidebar({ replies, currentReplyId, originalReplyId, currentUserI
   );
 }
 
-// ✅ NEW: SIDEBAR FOR ATTACHMENTS (Open vs Download separated)
 function SupportsSidebar({ existingSupports, newSupportFiles, canEdit, onRemoveExisting, onRemoveNew, onAddFiles, onClose }) {
   return (
     <div style={{ width: 260, flexShrink: 0, background: '#fff', borderLeft: '1px solid #ddd', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>

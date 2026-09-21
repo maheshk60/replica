@@ -29,4 +29,4 @@ export default function TDSLitigations() {
       clientPath={(c) => `/legal-services/clients/${c.client}?type=tds&caseId=${c.id}`}
     />
   );
-}
+}   

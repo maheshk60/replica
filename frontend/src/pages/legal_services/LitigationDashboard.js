@@ -208,10 +208,10 @@ export default function LitigationDashboard({
   const isNoticeAttention = (n) => {
     if (n.status === 'open' || n.status === 'closed') return false;
     
-    // ✅ NEW: If CEO is logged in, an escalated notice is ALWAYS urgent
-    if (user?.role === 'Founder' && n.has_escalated_items) {
-      return true;
-    }
+    // // ✅ NEW: If CEO is logged in, an escalated notice is ALWAYS urgent
+    // if (user?.role === 'Founder' && n.has_escalated_items) {
+    //   return true;
+    // }
 
     const due = n.extended_due_date || n.due_date;
     if (!due) return false;

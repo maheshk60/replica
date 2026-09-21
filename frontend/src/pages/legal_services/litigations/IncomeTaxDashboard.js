@@ -1,41 +1,4 @@
 
-// import { useNavigate } from 'react-router-dom';
-// import LitigationDashboard from '../LitigationDashboard';
-// import { incomeTaxLitigationApi } from '../../../services/api';
-// import IncomeTaxCaseModal from './IncomeTaxCaseModal';
-
-// export default function IncomeTaxDashboard() {
-//   const navigate = useNavigate();
-//   return (
-//     <LitigationDashboard
-//       title="Income Tax Litigations"
-//       subtitle="Income Tax notice and appeal case tracking"
-//       api={incomeTaxLitigationApi}
-//       CaseModal={IncomeTaxCaseModal}
-//       caseType="income-tax-litigations"
-//       breadcrumbs={[
-//         { label: 'Litigations', path: '/legal-services/litigations' },
-//       ]}
-//       clientPath={(c) => `/legal-services/clients/${c.client}?type=income-tax`}
-//       jobListPath="/legal-services/litigations/income-tax/jobs"
-//     />
-//   );
-// }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 import LitigationDashboard from '../LitigationDashboard';
 import { api } from '../../../services/api';
 import IncomeTaxCaseModal from './IncomeTaxCaseModal';

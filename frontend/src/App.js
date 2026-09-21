@@ -47,9 +47,32 @@ const TDSLitigations = lazy(() =>
 const IncomeTaxLitigations = lazy(() =>
   import('./pages/legal_services/litigations/IncomeTaxLitigations')
 );
-const MCA = lazy(() =>
-  import('./pages/legal_services/MCA/mca')
+
+
+
+
+// ─── MCA ─────────────────────────────────────────────────────────
+const MCAMainSelector = lazy(() =>
+  import('./pages/legal_services/MCA/MCAMainSelector')
 );
+const MCACompanyDashboard = lazy(() =>
+  import('./pages/legal_services/MCA/MCACompanyDashboard')
+);
+const MCACompanyJobListView = lazy(() =>
+  import('./pages/legal_services/MCA/MCACompanyJobListView')
+);
+const MCALLPDashboard = lazy(() =>
+  import('./pages/legal_services/MCA/MCALLPDashboard')
+);
+const MCALLPJobListView = lazy(() =>
+  import('./pages/legal_services/MCA/MCALLPJobListView')
+);
+const MCAWorkspace = lazy(() =>
+  import('./pages/legal_services/MCA/MCAWorkspace')
+);
+
+
+
 const FEMA = lazy(() =>
   import('./pages/legal_services/Fema/fema')
 );
@@ -213,13 +236,116 @@ function App() {
                       </Suspense>
                     } />
 
-                    <Route path="/legal-services/mca" element={
+                    <Route path="/legal-services/clients/:clientId" element={
                       <Suspense fallback={<PageLoader />}>
                         <PrivateRoute allowedRoles={['Admin','HR','Founder','Manager','Team Lead','Employee']}>
-                          <MCA />
+                          <LegalWorkSpace />
                         </PrivateRoute>
                       </Suspense>
                     } />
+
+
+
+
+
+
+
+
+
+
+
+
+
+                    {/* ═══════════════ MCA ═══════════════ */}
+                    {/* Company workspace */}
+                    <Route
+                      path="/legal-services/mca/company/clients/:clientId"
+                      element={
+                        <Suspense fallback={<PageLoader />}>
+                          <PrivateRoute allowedRoles={['Admin', 'HR', 'Founder', 'Manager', 'Team Lead', 'Employee']}>
+                            <MCAWorkspace />
+                          </PrivateRoute>
+                        </Suspense>
+                      }
+                    />
+
+                    {/* Company job list */}
+                    <Route
+                      path="/legal-services/mca/company/jobs"
+                      element={
+                        <Suspense fallback={<PageLoader />}>
+                          <PrivateRoute allowedRoles={['Admin', 'HR', 'Founder', 'Manager', 'Team Lead', 'Employee']}>
+                            <MCACompanyJobListView />
+                          </PrivateRoute>
+                        </Suspense>
+                      }
+                    />
+
+                    {/* Company dashboard */}
+                    <Route
+                      path="/legal-services/mca/company"
+                      element={
+                        <Suspense fallback={<PageLoader />}>
+                          <PrivateRoute allowedRoles={['Admin', 'HR', 'Founder', 'Manager', 'Team Lead', 'Employee']}>
+                            <MCACompanyDashboard />
+                          </PrivateRoute>
+                        </Suspense>
+                      }
+                    />
+
+                    {/* LLP workspace */}
+                    <Route
+                      path="/legal-services/mca/llp/clients/:clientId"
+                      element={
+                        <Suspense fallback={<PageLoader />}>
+                          <PrivateRoute allowedRoles={['Admin', 'HR', 'Founder', 'Manager', 'Team Lead', 'Employee']}>
+                            <MCAWorkspace />
+                          </PrivateRoute>
+                        </Suspense>
+                      }
+                    />
+
+                    {/* LLP job list */}
+                    <Route
+                      path="/legal-services/mca/llp/jobs"
+                      element={
+                        <Suspense fallback={<PageLoader />}>
+                          <PrivateRoute allowedRoles={['Admin', 'HR', 'Founder', 'Manager', 'Team Lead', 'Employee']}>
+                            <MCALLPJobListView />
+                          </PrivateRoute>
+                        </Suspense>
+                      }
+                    />
+
+                    {/* LLP dashboard */}
+                    <Route
+                      path="/legal-services/mca/llp"
+                      element={
+                        <Suspense fallback={<PageLoader />}>
+                          <PrivateRoute allowedRoles={['Admin', 'HR', 'Founder', 'Manager', 'Team Lead', 'Employee']}>
+                            <MCALLPDashboard />
+                          </PrivateRoute>
+                        </Suspense>
+                      }
+                    />
+
+                    {/* MCA hub — 2 cards (Company / LLP) — LEAST specific, last */}
+                    <Route
+                      path="/legal-services/mca"
+                      element={
+                        <Suspense fallback={<PageLoader />}>
+                          <PrivateRoute allowedRoles={['Admin', 'HR', 'Founder', 'Manager', 'Team Lead', 'Employee']}>
+                            <MCAMainSelector />
+                          </PrivateRoute>
+                        </Suspense>
+                      }
+                    />
+
+
+
+
+
+
 
                     <Route path="/legal-services/fema" element={
                       <Suspense fallback={<PageLoader />}>
@@ -237,13 +363,7 @@ function App() {
                       </Suspense>
                     } />
 
-                    <Route path="/legal-services/clients/:clientId" element={
-                      <Suspense fallback={<PageLoader />}>
-                        <PrivateRoute allowedRoles={['Admin','HR','Founder','Manager','Team Lead','Employee']}>
-                          <LegalWorkSpace />
-                        </PrivateRoute>
-                      </Suspense>
-                    } />
+                    
 
 
 

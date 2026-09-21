@@ -200,19 +200,17 @@ class IncomeTaxLitigation(BaseLegalCase):
 # -------------------------
 # MCA — simple shared structure (extend later if needed)
 # -------------------------
-# class MCACase(BaseLegalCase):
-#     reference_no = models.CharField(max_length=100, unique=True, blank=True)
-#     filing_type = models.CharField(max_length=150, blank=True, null=True)  # e.g. AOC-4, MGT-7, DIR-3 KYC
+class MCACase(BaseLegalCase):
+    reference_no = models.CharField(max_length=100, unique=True, blank=True)
+    filing_type = models.CharField(max_length=150, blank=True, null=True)  # e.g. AOC-4, MGT-7, DIR-3 KYC
 
-#     def save(self, *args, **kwargs):
-#         if not self.reference_no:
-#             self.reference_no = self._generate_reference("CKPSCA-MCA")
-#         super().save(*args, **kwargs)
+    def save(self, *args, **kwargs):
+        if not self.reference_no:
+            self.reference_no = self._generate_reference("CKPSCA-MCA")
+        super().save(*args, **kwargs)
 
-#     def __str__(self):
-#         return f"{self.client.name} - {self.reference_no}"
-
-
+    def __str__(self):
+        return f"{self.client.name} - {self.reference_no}"
 
 
 # -------------------------
@@ -282,25 +280,10 @@ class LegalCaseAuditLog(models.Model):
         ('closure_approved',      'Case Closed'),
         ('closure_rejected',      'Closure Rejected'),
         ('closure_escalated',     'Closure Moved to CEO'),
-        # MCA events
-        ('mca_filing_created',    'MCA Filing Created'),
-        ('mca_draft_uploaded',    'MCA Draft Form Uploaded'),
-        ('mca_docs_submitted',    'MCA Docs Submitted for Review'),
-        ('mca_docs_approved',     'MCA Docs Approved for Filing'),
-        ('mca_docs_rejected',     'MCA Docs Rejected'),
-        ('mca_docs_escalated',    'MCA Docs Moved to CEO'),
-        ('mca_srn_uploaded',      'MCA SRN Receipt Uploaded'),
-        ('mca_srn_approved',      'MCA SRN Verified'),
-        ('mca_srn_rejected',      'MCA SRN Rejected'),
-        ('mca_srn_escalated',     'MCA SRN Moved to CEO'),
-        ('mca_outcome_approved',  'MCA Outcome: Approved'),
-        ('mca_outcome_rejected',  'MCA Outcome: Rejected'),
-        ('mca_outcome_resubmit',  'MCA Outcome: Resubmission Required'),
-        ('mca_filing_closed',     'MCA Filing Closed'),
 
     ]
 
-    litigation_type = models.CharField(max_length=20, choices=[('tds', 'TDS'), ('income-tax', 'Income Tax'), ('mca', 'MCA')])
+    litigation_type = models.CharField(max_length=20, choices=[('tds', 'TDS'), ('income-tax', 'Income Tax')])
     client = models.ForeignKey('clients.Client', on_delete=models.CASCADE, related_name='legal_audit_logs')
     job_id = models.IntegerField(null=True, blank=True, db_index=True)
 
@@ -797,250 +780,6 @@ class CaseClosureDocument(models.Model):
 
     def __str__(self):
         return f"{self.court_case_id} — {self.doc_type}"
-
-
-
-
-
-
-# ══════════════════════════════════════════════════════════════════
-# MCA FILING — Like CaseNotice, but for MCA form filings
-# ══════════════════════════════════════════════════════════════════
-
-class MCACase(BaseLegalCase):
-    STATUS_CHOICES = [
-        ('wip', 'WIP'),
-        ('under_review', 'Under Review'),
-        ('closed', 'Closed'),
-    ]
-
-    reference_no = models.CharField(max_length=100, unique=True, blank=True)
-    filing_type = models.CharField(max_length=150, blank=True, null=True)
-
-    sub_service = models.ForeignKey(
-        'clients.SubService', on_delete=models.SET_NULL, null=True, blank=True,
-        related_name='mca_cases'
-    )
-    task = models.ForeignKey(
-        'clients.Task',
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='mca_cases'
-    )
-    financial_year = models.CharField(max_length=20, blank=True, null=True)
-
-    SERVICE_GROUP_CHOICES = [
-        ('company', 'Company'),
-        ('llp', 'LLP'),
-    ]
-    service_group = models.CharField(
-        max_length=20,
-        choices=SERVICE_GROUP_CHOICES,
-        default='company',
-        db_index=True,
-        blank=True,
-    )
-
-    status = models.CharField(
-        max_length=20,
-        choices=STATUS_CHOICES,
-        default='wip',
-    )
-
-    assigned_to = models.ManyToManyField(
-        'employee.Employee',
-        blank=True,
-        related_name='+',
-    )
-
-    def save(self, *args, **kwargs):
-        if not self.reference_no:
-            self.reference_no = self._generate_reference("CKPSCA-MCA")
-        super().save(*args, **kwargs)
-
-    def __str__(self):
-        return f"{self.client.name} - {self.reference_no}"
-
-    def _generate_reference(self, prefix):
-        today = now().date()
-        year = today.year
-        if today.month >= 4:
-            fy_start, fy_end = year, year + 1
-        else:
-            fy_start, fy_end = year - 1, year
-        fy_str = f"{fy_start}-{str(fy_end)[-2:]}"
-
-        with transaction.atomic():
-            last_record = self.__class__.objects.filter(
-                reference_no__icontains=f"-{fy_str}"
-            ).order_by('-id').first()
-            next_number = 1
-            if last_record and last_record.reference_no:
-                match = re.search(r'-(\d{4})-\d{4}-\d{2}$', last_record.reference_no)
-                if match:
-                    next_number = int(match.group(1)) + 1
-            return f"{prefix}-{next_number:04d}-{fy_str}"
-
-
-class MCAFiling(models.Model):
-    STATUS_CHOICES = [
-        ('wip',                     'WIP'),
-        ('under_review',            'Under Review'),
-        ('approved_for_filing',     'Approved for Filing'),
-        ('filed_on_portal',         'Filed on Portal'),
-        ('mca_approved',            'MCA Approved'),
-        ('mca_rejected',            'MCA Rejected'),
-        ('resubmission_required',   'Resubmission Required'),
-    ]
-
-    STAGE_CHOICES = [
-        ('internal_review',   'Internal Review'),
-        ('portal_filing',     'Portal Filing'),
-        ('mca_verification',  'MCA Verification'),
-        ('closed',            'Closed'),
-    ]
-
-    mca_case = models.ForeignKey(MCACase, on_delete=models.CASCADE, related_name='filings')
-
-    # Event details
-    event_date = models.DateField(blank=True, null=True)
-    filing_due_date = models.DateField(blank=True, null=True)
-    extended_due_date = models.DateField(blank=True, null=True)
-
-    # MCA portal identifiers
-    srn_number = models.CharField(max_length=100, blank=True, null=True)
-    challan_number = models.CharField(max_length=100, blank=True, null=True)
-
-    # Filing state
-    status = models.CharField(max_length=30, choices=STATUS_CHOICES, default='wip')
-    stage = models.CharField(max_length=30, choices=STAGE_CHOICES, default='internal_review')
-    notes = models.TextField(blank=True, null=True)
-
-    # Internal review (Stage 1)
-    review_status = models.CharField(
-        max_length=20,
-        choices=[
-            ('not_applicable', 'Not Applicable'),
-            ('pending',        'Pending'),
-            ('accepted',       'Accepted'),
-            ('rejected',       'Rejected'),
-            ('escalated',      'Escalated'),
-        ],
-        default='not_applicable',
-    )
-    review_note = models.TextField(blank=True, null=True)
-    reviewed_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
-        null=True, blank=True, related_name='reviewed_mca_filings'
-    )
-    reviewed_at = models.DateTimeField(null=True, blank=True)
-
-    # SRN review (Stage 2 — after filing on portal)
-    srn_review_status = models.CharField(
-        max_length=20,
-        choices=[
-            ('not_applicable', 'Not Applicable'),
-            ('pending',        'Pending'),
-            ('approved',       'Approved'),
-            ('rejected',       'Rejected'),
-            ('escalated',      'Escalated'),
-        ],
-        default='not_applicable',
-    )
-    srn_review_note = models.TextField(blank=True, null=True)
-    srn_reviewed_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
-        null=True, blank=True, related_name='srn_reviewed_mca_filings'
-    )
-    srn_reviewed_at = models.DateTimeField(null=True, blank=True)
-
-    # MCA outcome (Stage 3)
-    mca_outcome = models.CharField(
-        max_length=30,
-        choices=[
-            ('pending',                 'Pending'),
-            ('approved',                'Approved'),
-            ('rejected',                'Rejected'),
-            ('resubmission_required',   'Resubmission Required'),
-        ],
-        default='pending',
-    )
-    mca_outcome_note = models.TextField(blank=True, null=True)
-    mca_outcome_recorded_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
-        null=True, blank=True, related_name='mca_outcome_recorded_filings'
-    )
-    mca_outcome_recorded_at = models.DateTimeField(null=True, blank=True)
-
-    created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
-        null=True, blank=True, related_name='created_mca_filings'
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ['-created_at']
-
-    def __str__(self):
-        return f"MCA Filing — {self.mca_case.reference_no} (SRN: {self.srn_number or 'N/A'})"
-
-
-class MCAFilingDocument(models.Model):
-    DOC_TYPE_CHOICES = [
-        ('draft_form',             'Draft Form (from MCA Portal)'),
-        ('supporting_doc',         'Supporting Document'),
-        ('pending_draft',          'Pending Draft'),
-        ('pending_support',        'Pending Support Doc'),
-        ('signed_form',            'Signed Form'),
-        ('srn_receipt',            'SRN Receipt'),
-        ('challan',                'Challan'),
-        ('acknowledgment',         'Acknowledgment'),
-        ('mca_approval_cert',      'MCA Approval Certificate'),
-        ('mca_rejection_notice',   'MCA Rejection Notice'),
-        ('resubmission_notice',    'Resubmission Notice'),
-    ]
-
-    REVIEW_STATUS_CHOICES = [
-        ('not_applicable', 'Not Applicable'),
-        ('draft',          'Draft'),
-        ('pending',        'Pending Review'),
-        ('approved',       'Approved'),
-        ('rejected',       'Rejected'),
-        ('escalated',      'Escalated to CEO'),
-    ]
-
-    filing = models.ForeignKey(MCAFiling, on_delete=models.CASCADE, related_name='documents')
-    file = models.FileField(upload_to='mca_filings/%Y/%m/')
-    file_name = models.CharField(max_length=255, blank=True)
-    doc_type = models.CharField(max_length=30, choices=DOC_TYPE_CHOICES, default='pending_draft')
-
-    # Links pending_support docs to their parent draft
-    parent_draft = models.IntegerField(null=True, blank=True)
-
-    review_status = models.CharField(max_length=20, choices=REVIEW_STATUS_CHOICES, default='draft')
-    review_note = models.TextField(blank=True, null=True)
-    reviewed_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
-        null=True, blank=True, related_name='reviewed_mca_docs'
-    )
-    reviewed_at = models.DateTimeField(null=True, blank=True)
-    uploaded_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
-        null=True, blank=True, related_name='uploaded_mca_docs'
-    )
-    uploaded_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ['-uploaded_at']
-
-    def save(self, *args, **kwargs):
-        if not self.file_name and self.file:
-            self.file_name = self.file.name.split('/')[-1]
-        super().save(*args, **kwargs)
-
-    def __str__(self):
-        return f"{self.file_name} ({self.doc_type})"
 
 
 

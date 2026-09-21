@@ -54,7 +54,7 @@ const STATUS_META = {
   approved:  { label: 'Approved',  color: C.green, bg: C.greenBg, border: C.greenBorder },
   accepted:  { label: 'Approved',  color: C.green, bg: C.greenBg, border: C.greenBorder },
   rejected:  { label: 'Rejected',  color: C.red,   bg: C.redBg,   border: C.redBorder },
-  escalated: { label: 'Escalated', color: C.purple,bg: C.purpleBg,border: C.purpleBorder },
+  escalated: { label: 'Move to CEO', color: C.purple,bg: C.purpleBg,border: C.purpleBorder },
 };
 
 const HIGH_ADMIN_ROLES = ['Admin', 'Founder'];
@@ -95,7 +95,7 @@ const handleDownloadFile = async (fileUrl, fileName) => {
 // ══════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ══════════════════════════════════════════════════════════════════
-export default function ReviewTabV2({ courtCaseId, litigationType, refreshTick, caseData }) {
+export default function ReviewTabV2({ courtCaseId, litigationType, refreshTick, caseData, onUpdated }) {
   const { user } = useAuth();
 
   const [reviews, setReviews] = useState([]);
@@ -115,10 +115,10 @@ export default function ReviewTabV2({ courtCaseId, litigationType, refreshTick, 
 
   const [selectedNoticeId, setSelectedNoticeId] = useState(null);
   const [replyModalData, setReplyModalData] = useState(null);
-  const [filter, setFilter] = useState('all');
 
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyFilter, setHistoryFilter] = useState('all');
+  const [historyStatusFilter, setHistoryStatusFilter] = useState('all');
   const [expandedHistoryId, setExpandedHistoryId] = useState(null);
 
   const isFounder = user?.role === 'Founder';
@@ -144,18 +144,6 @@ export default function ReviewTabV2({ courtCaseId, litigationType, refreshTick, 
       const allPendingReplyDocs = [];
       const allPendingSupportDocs = [];
 
-      // noticeData.forEach(n => {
-      //   (n.documents || []).forEach(d => {
-      //     if (d.doc_type === 'acknowledgment') {
-      //       allAckDocs.push({ ...d, notice: n });
-      //     } else if (d.doc_type === 'pending' || (d.doc_type === 'reply' && d.review_status !== 'approved')) {
-      //       allPendingReplyDocs.push({ ...d, notice: n });
-      //     } else if (d.doc_type === 'pending_support' || (d.doc_type === 'supporting_doc' && d.review_status !== 'approved')) {
-      //       allPendingSupportDocs.push({ ...d, notice: n });
-      //     }
-      //   });
-      // });
-
       noticeData.forEach((n) => {
         (n.documents || []).forEach((d) => {
           // Only after Maker clicked "Submit for Review" (or later states)
@@ -166,15 +154,9 @@ export default function ReviewTabV2({ courtCaseId, litigationType, refreshTick, 
 
           if (d.doc_type === 'acknowledgment') {
             allAckDocs.push({ ...d, notice: n });
-          } else if (
-            d.doc_type === 'pending' ||
-            (d.doc_type === 'reply' && d.review_status !== 'approved')
-          ) {
+          } else if (d.doc_type === 'pending' || d.doc_type === 'reply') {
             allPendingReplyDocs.push({ ...d, notice: n });
-          } else if (
-            d.doc_type === 'pending_support' ||
-            (d.doc_type === 'supporting_doc' && d.review_status !== 'approved')
-          ) {
+          } else if (d.doc_type === 'pending_support' || d.doc_type === 'supporting_doc') {
             allPendingSupportDocs.push({ ...d, notice: n });
           }
         });
@@ -229,25 +211,20 @@ export default function ReviewTabV2({ courtCaseId, litigationType, refreshTick, 
   const handleApproveReviewRequest = (review) => {
     if (review.status === 'escalated') {
       setBusyId(review.id);
-      reviewApi.approve(review.id).then(() => load()).catch((e) => alert(e?.response?.data?.error || 'Failed to approve.')).finally(() => setBusyId(null));
+      reviewApi.approve(review.id)
+        .then(() => {
+          load();
+          onUpdated?.();
+        })
+        .catch((e) => alert(e?.response?.data?.error || 'Failed to approve.'))
+        .finally(() => setBusyId(null));
       return;
     }
     setAcceptTarget({ ...review, _kind: 'review_request' });
   };
+
+
   const handleRejectReviewRequest = (review) => setRejectTarget({ ...review, _kind: 'review_request' });
-
-  // const canReviewDoc = (doc) => {
-  //   const userId = user?.id;
-  //   const isSubmitter = doc.uploaded_by === userId;
-  //   const isAssignedChecker = (caseData?.checkers || []).some((c) => c.id === userId);
-  //   const isCeoRole = user?.role === 'Founder';
-
-  //   if (isSubmitter) return false;
-  //   if (doc.status === 'pending' || doc.review_status === 'pending') return isAssignedChecker || isCeoRole;
-  //   if (doc.status === 'escalated' || doc.review_status === 'escalated') return isCeoRole;
-  //   return false;
-  // };
-
 
   const canReviewDoc = (doc) => {
     const userId = user?.id;
@@ -271,17 +248,6 @@ export default function ReviewTabV2({ courtCaseId, litigationType, refreshTick, 
   const handleApproveDoc = (doc) => setAcceptTarget({ ...doc, _kind: 'doc' });
   const handleRejectDoc = (doc) => setRejectTarget({ ...doc, _kind: 'doc' });
   const handleOpenDocPdf = (url) => { if (url) window.open(url, '_blank', 'noopener,noreferrer'); };
-
-  // const canReviewClosure = (bundleItem) => {
-  //   const userId = user?.id;
-  //   const isSubmitter = bundleItem.submitted_by_id === userId;
-  //   const isAssignedChecker = (caseData?.checkers || []).some((c) => c.id === userId);
-  //   const isCeoRole = user?.role === 'Founder';
-  //   if (isSubmitter) return false;
-  //   if (bundleItem.status === 'pending') return isAssignedChecker || isCeoRole;
-  //   if (bundleItem.status === 'escalated') return isCeoRole;
-  //   return false;
-  // };
 
   const canReviewClosure = (bundleItem) => {
     const userId = user?.id;
@@ -323,6 +289,7 @@ export default function ReviewTabV2({ courtCaseId, litigationType, refreshTick, 
       }
       setAcceptTarget(null);
       await load();
+      onUpdated?.();
     } catch (e) { throw e; } finally { setBusyId(null); }
   };
 
@@ -340,6 +307,7 @@ export default function ReviewTabV2({ courtCaseId, litigationType, refreshTick, 
       }
       setRejectTarget(null);
       await load();
+      onUpdated?.();
     } catch (e) { throw e; } finally { setBusyId(null); }
   };
 
@@ -397,17 +365,15 @@ export default function ReviewTabV2({ courtCaseId, litigationType, refreshTick, 
     active.sort((a, b) => new Date(b._sortDate) - new Date(a._sortDate));
     completed.sort((a, b) => new Date(b._sortDate) - new Date(a._sortDate));
 
-    if (completed.length > 0) {
-      active.push(completed[0]);
-      return { activeItems: active, historyItems: completed.slice(1) };
-    }
-    return { activeItems: active, historyItems: [] };
+    // ✅ All completed items go directly to History — no more promoting into active
+    return { activeItems: active, historyItems: completed };
   }, [allItems]);
 
-  const visibleActiveItems = filter === 'all' ? activeItems : activeItems.filter(r => r.status === filter);
+  const visibleActiveItems = activeItems;
   
+  // History filters by BOTH status and type
   const visibleHistoryItems = historyItems.filter(r => {
-    if (filter !== 'all' && r.status !== filter) return false;
+    if (historyStatusFilter !== 'all' && r.status !== historyStatusFilter) return false;
     if (historyFilter === 'notice_edit') return r.type === 'notice_edit';
     if (historyFilter === 'reply') return r.type === 'reply' || r.type === 'uploaded_reply_bundle';
     if (historyFilter === 'ack') return r.type === 'ack';
@@ -415,91 +381,244 @@ export default function ReviewTabV2({ courtCaseId, litigationType, refreshTick, 
     return true;
   });
 
-  const counts = {
-    all: allItems.length,
-    pending: allItems.filter(r => r.status === 'pending').length,
-    approved: allItems.filter(r => r.status === 'approved').length,
-    rejected: allItems.filter(r => r.status === 'rejected').length,
-    escalated: allItems.filter(r => r.status === 'escalated').length,
+  const historyCounts = {
+    all: historyItems.length,
+    approved: historyItems.filter((r) => r.status === 'approved').length,
+    rejected: historyItems.filter((r) => r.status === 'rejected').length,
+  };
+
+  const historyTypeCounts = {
+    all: historyItems.length,
+    notice_edit: historyItems.filter((r) => r.type === 'notice_edit').length,
+    reply: historyItems.filter(
+      (r) => r.type === 'reply' || r.type === 'uploaded_reply_bundle'
+    ).length,
+    ack: historyItems.filter((r) => r.type === 'ack').length,
+    summary: historyItems.filter((r) => r.type === 'summary').length,
+    closure: historyItems.filter((r) => r.type === 'closure').length,
   };
 
   return (
-    <div style={{ fontFamily: SANS }}>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap', padding: '10px 14px', background: '#fff', border: `1px solid ${C.border}`, borderRadius: 10 }}>
-        {['all', 'pending', 'approved', 'rejected', 'escalated'].map((f) => {
-          const active = filter === f;
-          const meta = f !== 'all' ? STATUS_META[f] : null;
-          return (
-            <button key={f} onClick={() => setFilter(f)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 8, border: `1.5px solid ${active ? C.navy : C.border}`, background: active ? C.navy : '#fff', color: active ? '#fff' : C.slate, fontSize: 11.5, fontWeight: 700, cursor: 'pointer', textTransform: 'capitalize' }}>
-              {f}
-              <span style={{ background: active ? 'rgba(255,255,255,0.2)' : (meta?.bg || C.borderLight), color: active ? '#fff' : (meta?.color || C.slate), padding: '1px 6px', borderRadius: 999, fontSize: 10, fontWeight: 800, minWidth: 16, textAlign: 'center' }}>{counts[f]}</span>
-            </button>
-          );
-        })}
-      </div>
+    <div style={{ fontFamily: SANS,display: 'flex',flexDirection: 'column',minHeight: 'calc(100vh - 280px)',}}>
+      
 
       {loading && <div style={{ padding: 40, textAlign: 'center', color: C.muted, fontSize: 13, background: '#fff', borderRadius: 10, border: `1px solid ${C.border}` }}>Loading reviews...</div>}
       {error && !loading && <div style={{ padding: 14, background: C.redBg, color: C.red, border: `1px solid ${C.redBorder}`, borderRadius: 10, fontSize: 12.5, fontWeight: 600 }}>{error}</div>}
 
       {!loading && !error && (
-        <>
-          {visibleActiveItems.length === 0 ? (
-            <div style={{ padding: '40px 20px', textAlign: 'center', background: '#fff', borderRadius: 10, border: `1px solid ${C.border}`, marginBottom: 16 }}>
-              <div style={{ fontSize: 32, marginBottom: 8, opacity: 0.6 }}>📋</div>
-              <div style={{ color: C.slate, fontSize: 13, fontWeight: 600 }}>
-                {filter === 'all' ? 'No active reviews pending.' : `No active ${filter} items.`}
-              </div>
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          flex: 1,
+          background: '#fff',
+          border: `1px solid ${C.border}`,
+          borderRadius: 12,
+          overflow: 'hidden',
+          boxShadow: '0 1px 3px rgba(15,23,42,0.04)',
+        }}>
+          {/* ═══ TOP SECTION: Active Reviews ═══ */}
+          <div style={{
+            flex: 1,
+            padding: '20px',
+            overflowY: 'auto',
+            minHeight: 300,
+          }}>
+            {/* Section heading for Active */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              marginBottom: 14, paddingBottom: 10,
+              borderBottom: `1px solid ${C.borderLight}`,
+            }}>
+              <span style={{ fontSize: 13, fontWeight: 800, color: C.ink, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                Active Reviews
+              </span>
+              <span style={{
+                fontSize: 10.5, fontWeight: 700, color: C.muted, background: C.bg,
+                border: `1px solid ${C.border}`, padding: '1px 8px', borderRadius: 99,
+              }}>
+                {visibleActiveItems.length}
+              </span>
             </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
-              {visibleActiveItems.map((item) => renderItemCard(item, {
-                busyId, canApproveReviewRequest, canRejectReviewRequest, handleApproveReviewRequest, handleRejectReviewRequest,
-                canReviewDoc, handleApproveDoc, handleRejectDoc, handleOpenDocPdf, 
-                handleViewReply,
-                canReviewClosure, handleApproveClosure, handleRejectClosure, 
-                handleOpenClosureDoc: (doc) => { if (doc?.file_url) window.open(doc.file_url, '_blank', 'noopener,noreferrer'); },
-                caseData, user, setSelectedNoticeId,
-              }))}
-            </div>
-          )}
 
-          <div style={{ background: '#fff', border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
-            <div onClick={() => setHistoryOpen(!historyOpen)} style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', background: historyOpen ? C.bgSoft : '#fff', borderBottom: historyOpen ? `1px solid ${C.border}` : 'none' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: C.slate, transform: historyOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
-                <span style={{ fontSize: 13, fontWeight: 800, color: C.ink }}>History (Completed)</span>
-                <span style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, background: C.bg, border: `1px solid ${C.border}`, padding: '1px 8px', borderRadius: 99 }}>{historyItems.length}</span>
+            {visibleActiveItems.length === 0 ? (
+              <div style={{
+                padding: '60px 20px', textAlign: 'center',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
+              }}>
+                <div style={{ fontSize: 40, opacity: 0.5 }}>📋</div>
+                <div style={{ color: C.slate, fontSize: 13, fontWeight: 600 }}>
+                  No active reviews pending.
+                </div>
+                <div style={{ color: C.muted, fontSize: 11.5 }}>
+                  All reviewed items are shown in the History section below.
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {visibleActiveItems.map((item) => renderItemCard(item, {
+                  busyId, canApproveReviewRequest, canRejectReviewRequest, handleApproveReviewRequest, handleRejectReviewRequest,
+                  canReviewDoc, handleApproveDoc, handleRejectDoc, handleOpenDocPdf,
+                  handleViewReply,
+                  canReviewClosure, handleApproveClosure, handleRejectClosure,
+                  handleOpenClosureDoc: (doc) => { if (doc?.file_url) window.open(doc.file_url, '_blank', 'noopener,noreferrer'); },
+                  caseData, user, setSelectedNoticeId,
+                }))}
+              </div>
+            )}
+          </div>
+
+          {/* ═══ BOTTOM SECTION: History (pinned to bottom of same card) ═══ */}
+          <div style={{
+            borderTop: `1px solid ${C.border}`,
+            background: historyOpen ? C.bgSoft : '#FAFBFD',
+            flexShrink: 0,
+          }}>
+            <div
+              onClick={() => setHistoryOpen(!historyOpen)}
+              style={{
+                padding: '14px 20px',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                cursor: 'pointer',
+                transition: 'background .12s',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{
+                  fontSize: 14, color: C.slate,
+                  transform: historyOpen ? 'rotate(90deg)' : 'rotate(0deg)',
+                  transition: 'transform 0.15s',
+                }}>▶</span>
+                <span style={{ fontSize: 14 }}>📜</span>
+                <span style={{ fontSize: 13, fontWeight: 800, color: C.ink, textTransform: 'uppercase', letterSpacing: '.04em' }}>
+                  History
+                </span>
+                <span style={{ fontSize: 11, color: C.muted, fontWeight: 500 }}>
+                  (Completed)
+                </span>
+                <span style={{
+                  fontSize: 10.5, fontWeight: 700, color: C.muted, background: '#fff',
+                  border: `1px solid ${C.border}`, padding: '1px 8px', borderRadius: 99,
+                }}>
+                  {historyItems.length}
+                </span>
               </div>
               {historyOpen && (
-                <select onClick={(e) => e.stopPropagation()} value={historyFilter} onChange={(e) => setHistoryFilter(e.target.value)} style={{ padding: '5px 10px', border: `1px solid ${C.border}`, borderRadius: 6, background: '#fff', outline: 'none' }}>
-                  <option value="all">All Types</option>
-                  <option value="notice_edit">Notice Info</option>
-                  <option value="reply">Reply</option>
-                  <option value="ack">Acknowledgment</option>
-                </select>
+                <div
+                  style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {/* Status chips */}
+                  {[
+                    { key: 'all', label: 'All', count: historyCounts.all },
+                    { key: 'approved', label: 'Approved', count: historyCounts.approved },
+                    { key: 'rejected', label: 'Rejected', count: historyCounts.rejected },
+                  ].map((s) => {
+                    const active = historyStatusFilter === s.key;
+                    return (
+                      <button
+                        key={s.key}
+                        type="button"
+                        onClick={() => setHistoryStatusFilter(s.key)}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 5,
+                          padding: '4px 10px',
+                          borderRadius: 99,
+                          border: `1.5px solid ${active ? C.navy : C.border}`,
+                          background: active ? C.navy : '#fff',
+                          color: active ? '#fff' : C.slate,
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {s.label}
+                        <span
+                          style={{
+                            minWidth: 16,
+                            padding: '0 5px',
+                            borderRadius: 99,
+                            fontSize: 10,
+                            fontWeight: 800,
+                            background: active ? 'rgba(255,255,255,0.2)' : C.bg,
+                            color: active ? '#fff' : C.muted,
+                            textAlign: 'center',
+                          }}
+                        >
+                          {s.count}
+                        </span>
+                      </button>
+                    );
+                  })}
+
+                  {/* Type dropdown with counts in labels */}
+                  <select
+                    value={historyFilter}
+                    onChange={(e) => setHistoryFilter(e.target.value)}
+                    style={{
+                      padding: '5px 10px',
+                      border: `1px solid ${historyFilter !== 'all' ? C.navy : C.border}`,
+                      borderRadius: 6,
+                      background: historyFilter !== 'all' ? C.blueBg : '#fff',
+                      outline: 'none',
+                      fontSize: 11.5,
+                      fontWeight: 600,
+                      color: historyFilter !== 'all' ? C.navy : C.slate,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <option value="all">All Types ({historyTypeCounts.all})</option>
+                    <option value="notice_edit">Notice Info ({historyTypeCounts.notice_edit})</option>
+                    <option value="reply">Reply ({historyTypeCounts.reply})</option>
+                    <option value="ack">Acknowledgment ({historyTypeCounts.ack})</option>
+                    <option value="summary">Summary ({historyTypeCounts.summary})</option>
+                    <option value="closure">Closure ({historyTypeCounts.closure})</option>
+                  </select>
+                </div>
               )}
             </div>
+
             {historyOpen && (
-              <div style={{ padding: 8 }}>
+              <div style={{
+                padding: '4px 12px 12px',
+                maxHeight: 400,
+                overflowY: 'auto',
+                borderTop: `1px solid ${C.borderLight}`,
+                background: '#fff',
+              }}>
                 {visibleHistoryItems.length === 0 ? (
-                  <div style={{ padding: 20, textAlign: 'center', color: C.muted, fontSize: 12, fontStyle: 'italic' }}>No completed items match this filter.</div>
+                  <div style={{
+                    padding: 30, textAlign: 'center',
+                    color: C.muted, fontSize: 12, fontStyle: 'italic',
+                  }}>
+                    No completed items match this filter.
+                  </div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingTop: 8 }}>
                     {visibleHistoryItems.map((item) => (
-                      <HistoryRow key={item.id} item={item} expanded={expandedHistoryId === item.id} onToggle={() => setExpandedHistoryId(expandedHistoryId === item.id ? null : item.id)} onViewReply={handleViewReply} onOpenDoc={handleOpenDocPdf} onOpenNotice={setSelectedNoticeId} />
+                      <HistoryRow
+                        key={item.id}
+                        item={item}
+                        expanded={expandedHistoryId === item.id}
+                        onToggle={() => setExpandedHistoryId(expandedHistoryId === item.id ? null : item.id)}
+                        onViewReply={handleViewReply}
+                        onOpenDoc={handleOpenDocPdf}
+                        onOpenNotice={setSelectedNoticeId}
+                      />
                     ))}
                   </div>
                 )}
               </div>
             )}
           </div>
-        </>
+        </div>
       )}
 
       {rejectTarget && <RejectModal review={rejectTarget} onClose={() => setRejectTarget(null)} onRejected={doReject} />}
       {acceptTarget && <AcceptModal review={acceptTarget} onClose={() => setAcceptTarget(null)} onAccepted={doAccept} showEscalate={!isFounder} />}
-      {selectedNoticeId && <NoticeDetailModal noticeId={selectedNoticeId} canEdit={false} onClose={() => setSelectedNoticeId(null)} onUpdated={() => { setSelectedNoticeId(null); load(); }} />}
-      {replyModalData && <ReplyEditorModal noticeId={replyModalData.noticeId} notice={replyModalData.notice} replyId={replyModalData.replyId} mode="review" currentUserId={user?.id} isAssignedMaker={(caseData?.makers || []).some((m) => m.id === user?.id)} isAssignedChecker={(caseData?.checkers || []).some((c) => c.id === user?.id)} isCeoRole={isFounder} onClose={() => setReplyModalData(null)} onSaved={() => { setReplyModalData(null); load(); }} />}
+      {selectedNoticeId && <NoticeDetailModal noticeId={selectedNoticeId} canEdit={false} onClose={() => setSelectedNoticeId(null)} onUpdated={() => { setSelectedNoticeId(null); load(); onUpdated?.(); }} />}
+      {replyModalData && <ReplyEditorModal noticeId={replyModalData.noticeId} notice={replyModalData.notice} replyId={replyModalData.replyId} mode="review" currentUserId={user?.id} isAssignedMaker={(caseData?.makers || []).some((m) => m.id === user?.id)} isAssignedChecker={(caseData?.checkers || []).some((c) => c.id === user?.id)} isCeoRole={isFounder} onClose={() => setReplyModalData(null)} onSaved={() => { setReplyModalData(null); load(); onUpdated?.(); }} />}
     </div>
   );
 }
@@ -564,35 +683,117 @@ function UploadedReplyBundleCard({ item, busy, canApprove, canReject, onOpenPdf,
         <div style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0, background: `linear-gradient(135deg, ${C.navy}, ${C.navyMid})`, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>{submitterInitial}</div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.2fr auto', gap: 12, alignItems: 'start', background: C.bgSoft, border: `1px solid ${C.borderLight}`, padding: 10, borderRadius: 6 }}>
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr auto',
+        gap: 12,
+        alignItems: 'start',
+        background: C.bgSoft,
+        border: `1px solid ${C.borderLight}`,
+        padding: 10,
+        borderRadius: 6,
+      }}>
+        {/* Main Reply column */}
         <div>
           <div style={{ fontSize: 9.5, fontWeight: 700, color: C.slate, textTransform: 'uppercase', marginBottom: 6 }}>Main Reply</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', background: '#fff', border: `1px solid ${C.border}`, borderRadius: 4 }}>
-            <span style={{ fontSize: 14 }}>📄</span>
-            <span onClick={() => onOpenPdf(item.file_url)} style={{ fontSize: 11, fontWeight: 600, color: C.blue, cursor: 'pointer', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'underline' }}>{item.file_name}</span>
-            <button onClick={() => handleDownloadFile(item.file_url, item.file_name)} title="Download" style={{ width: 22, height: 22, border: `1px solid ${C.borderLight}`, borderRadius: 4, background: '#fff', color: C.slate, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>⬇</button>
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '4px 8px', background: '#fff',
+            border: `1px solid ${C.border}`, borderRadius: 4,
+            width: 260, maxWidth: '100%', height: 28, boxSizing: 'border-box',
+          }}>
+            <span style={{ fontSize: 12, flexShrink: 0 }}>📄</span>
+            <span
+              onClick={() => onOpenPdf(item.file_url)}
+              title={item.file_name}
+              style={{
+                fontSize: 10.5, fontWeight: 600, color: C.blue, cursor: 'pointer',
+                flex: 1, minWidth: 0,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                textDecoration: 'underline',
+              }}
+            >
+              {item.file_name}
+            </span>
+            <button
+              onClick={() => handleDownloadFile(item.file_url, item.file_name)}
+              title="Download"
+              style={{
+                width: 18, height: 18, border: `1px solid ${C.borderLight}`,
+                borderRadius: 3, background: '#fff', color: C.slate, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                padding: 0, fontSize: 10, flexShrink: 0,
+              }}
+            >⬇</button>
           </div>
-        </div>
+        </div>  
 
+        {/* Supporting Docs column */}
         <div>
-          <div style={{ fontSize: 9.5, fontWeight: 700, color: C.slate, textTransform: 'uppercase', marginBottom: 6 }}>Supporting Docs ({item.support_docs?.length || 0})</div>
+          <div style={{ fontSize: 9.5, fontWeight: 700, color: C.slate, textTransform: 'uppercase', marginBottom: 6 }}>
+            Supporting Docs ({item.support_docs?.length || 0})
+          </div>
           {item.support_docs?.length > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {item.support_docs.map((sd, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', background: '#fff', border: `1px solid ${C.border}`, borderRadius: 4 }}>
-                  <span style={{ fontSize: 12 }}>📎</span>
-                  <span onClick={() => onOpenPdf(sd.file_url)} style={{ fontSize: 11, color: C.blue, cursor: 'pointer', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'underline' }}>{sd.file_name}</span>
-                  <button onClick={() => handleDownloadFile(sd.file_url, sd.file_name)} title="Download" style={{ width: 22, height: 22, border: `1px solid ${C.borderLight}`, borderRadius: 4, background: '#fff', color: C.slate, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>⬇</button>
+                <div key={i} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '4px 8px', background: '#fff',
+                  border: `1px solid ${C.border}`, borderRadius: 4,
+                  width: 260, maxWidth: '100%', height: 28, boxSizing: 'border-box',
+                }}>
+                  <span style={{ fontSize: 12, flexShrink: 0 }}>📎</span>
+                  <span
+                    onClick={() => onOpenPdf(sd.file_url)}
+                    title={sd.file_name}
+                    style={{
+                      fontSize: 10.5, color: C.blue, cursor: 'pointer',
+                      flex: 1, minWidth: 0,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      textDecoration: 'underline',
+                    }}
+                  >
+                    {sd.file_name}
+                  </span>
+                  <button
+                    onClick={() => handleDownloadFile(sd.file_url, sd.file_name)}
+                    title="Download"
+                    style={{
+                      width: 18, height: 18, border: `1px solid ${C.borderLight}`,
+                      borderRadius: 3, background: '#fff', color: C.slate, cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      padding: 0, fontSize: 10, flexShrink: 0,
+                    }}
+                  >⬇</button>
                 </div>
               ))}
             </div>
-          ) : <span style={{ fontSize: 10, color: C.muted, fontStyle: 'italic' }}>None</span>}
+          ) : (
+            <span style={{ fontSize: 10, color: C.muted, fontStyle: 'italic' }}>None</span>
+          )}
         </div>
 
+        {/* Action buttons — Reject on top-right of Approve */}
         {(canApprove || canReject) && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingTop: 18 }}>
-            {canApprove && <button onClick={onApprove} disabled={busy} style={{ padding: '6px 14px', borderRadius: 4, border: 'none', background: busy ? C.muted : C.green, color: '#fff', fontSize: 11, fontWeight: 700, cursor: busy ? 'wait' : 'pointer', boxShadow: '0 2px 4px rgba(15,122,90,0.2)' }}>{busy ? 'Working…' : '✓ Approve'}</button>}
-            {canReject && <button onClick={onReject} disabled={busy} style={{ padding: '6px 14px', borderRadius: 4, border: `1px solid ${C.redBorder}`, background: '#fff', color: C.red, fontSize: 11, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>Reject</button>}
+          <div style={{
+            display: 'flex', flexDirection: 'row', gap: 6,
+            alignSelf: 'flex-start', paddingTop: 18,
+          }}>
+            {canReject && (
+              <button onClick={onReject} disabled={busy} style={{
+                padding: '6px 14px', borderRadius: 4,
+                border: `1px solid ${C.redBorder}`, background: '#fff', color: C.red,
+                fontSize: 11, fontWeight: 700, cursor: busy ? 'wait' : 'pointer',
+              }}>Reject</button>
+            )}
+            {canApprove && (
+              <button onClick={onApprove} disabled={busy} style={{
+                padding: '6px 14px', borderRadius: 4, border: 'none',
+                background: busy ? C.muted : C.green, color: '#fff',
+                fontSize: 11, fontWeight: 700, cursor: busy ? 'wait' : 'pointer',
+                boxShadow: '0 2px 4px rgba(15,122,90,0.2)',
+              }}>{busy ? 'Working…' : '✓ Approve'}</button>
+            )}
           </div>
         )}
       </div>
@@ -629,12 +830,35 @@ function AckReviewCard({ item, busy, canApprove, canReject, onOpenPdf, onApprove
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: C.bgSoft, border: `1px solid ${C.borderLight}`, borderRadius: 6 }}>
-          <span style={{ fontSize: 16 }}>📄</span>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div onClick={() => onOpenPdf(item.file_url)} style={{ fontSize: 11.5, fontWeight: 600, color: C.blue, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer', textDecoration: 'underline' }}>{item.file_name}</div>
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: 8,
+          padding: '6px 10px', background: C.bgSoft,
+          border: `1px solid ${C.borderLight}`, borderRadius: 6,
+          width: 320, maxWidth: '100%', height: 32, boxSizing: 'border-box',
+        }}>
+          <span style={{ fontSize: 13, flexShrink: 0 }}>📄</span>
+          <div
+            onClick={() => onOpenPdf(item.file_url)}
+            title={item.file_name}
+            style={{
+              flex: 1, minWidth: 0,
+              fontSize: 11, fontWeight: 600, color: C.blue,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              cursor: 'pointer', textDecoration: 'underline',
+            }}
+          >
+            {item.file_name}
           </div>
-          <button onClick={() => handleDownloadFile(item.file_url, item.file_name)} title="Download" style={{ width: 26, height: 26, border: `1px solid ${C.border}`, borderRadius: 4, background: '#fff', color: C.slate, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>⬇</button>
+          <button
+            onClick={() => handleDownloadFile(item.file_url, item.file_name)}
+            title="Download"
+            style={{
+              width: 20, height: 20, border: `1px solid ${C.border}`,
+              borderRadius: 4, background: '#fff', color: C.slate, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: 0, fontSize: 11, flexShrink: 0,
+            }}
+          >⬇</button>
         </div>
 
         {(canApprove || canReject) && (
@@ -841,36 +1065,204 @@ function ReplyReviewCard({ item, onView, canReview, buttonLabel }) {
   );
 }
 
+
 function ClosureBundleCard({ item, busy, canApprove, canReject, onOpenDoc, onApprove, onReject }) {
   const meta = ACTION_META.closure_review;
+  const statusMeta = STATUS_META[item.status] || STATUS_META.pending;
+  const submitterInitial = (item.submitted_by_name || 'U').charAt(0).toUpperCase();
+  const isDone = item.status === 'approved' || item.status === 'rejected';
+  const isEscalated = item.status === 'escalated';
+
   const docsMap = {
     order: item.closure_documents?.find(d => d.doc_type === 'order'),
     demand_notice: item.closure_documents?.find(d => d.doc_type === 'demand_notice'),
     computation_sheet: item.closure_documents?.find(d => d.doc_type === 'computation_sheet'),
   };
+
+  const DOC_LABELS = {
+    order: 'Order Copy',
+    demand_notice: 'Demand Notice',
+    computation_sheet: 'Computation Sheet',
+  };
+
+  const borderColor =
+    item.status === 'approved' ? C.green :
+    item.status === 'rejected' ? C.red :
+    item.status === 'escalated' ? C.purple :
+    meta.color;
+
   return (
-    <div style={{ background: '#fff', border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, boxShadow: '0 1px 3px rgba(15,23,42,0.04)', borderLeft: `4px solid ${meta.color}` }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-        <div style={{ width: 32, height: 32, borderRadius: 8, background: meta.bg, border: `1.5px solid ${meta.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, color: meta.color }}>{meta.icon}</div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{meta.label}</div>
-          <div style={{ fontSize: 11, color: C.muted }}>Submitted by {item.submitted_by_name}</div>
+    <div style={{
+      background: '#fff',
+      border: `1px solid ${C.border}`,
+      borderRadius: 10,
+      padding: 14,
+      boxShadow: '0 1px 3px rgba(15,23,42,0.04)',
+      borderLeft: `4px solid ${borderColor}`,
+    }}>
+      {/* ─── HEADER: Icon + Title + Status Badge + Submitted + Avatar ─── */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+          <div style={{
+            width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+            background: meta.bg, border: `1.5px solid ${meta.border}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 15, color: meta.color,
+          }}>
+            {meta.icon}
+          </div>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{meta.label}</span>
+              <span style={{
+                fontSize: 9.5, fontWeight: 800, padding: '2px 8px', borderRadius: 999,
+                background: statusMeta.bg, color: statusMeta.color,
+                border: `1px solid ${statusMeta.border}`,
+                textTransform: 'uppercase', letterSpacing: '0.04em',
+              }}>
+                {statusMeta.label}
+              </span>
+            </div>
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+              Submitted by <b style={{ color: C.slate }}>{item.submitted_by_name || 'Unknown'}</b>
+              {item.submitted_at && ` · ${fmtDateTime(item.submitted_at)}`}
+            </div>
+          </div>
+        </div>
+
+        <div style={{
+          width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+          background: `linear-gradient(135deg, ${C.navy}, ${C.navyMid})`,
+          color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 11, fontWeight: 700,
+        }}>
+          {submitterInitial}
         </div>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 12px', background: C.bgSoft, border: `1px solid ${C.borderLight}`, borderRadius: 7, marginBottom: (canApprove || canReject) ? 10 : 0 }}>
+
+      {/* ─── FILES SECTION: Single Horizontal Row ─── */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', // ✅ Aligns files in a single row
+        gap: 12,
+        padding: '10px 12px', background: C.bgSoft,
+        border: `1px solid ${C.borderLight}`, borderRadius: 7,
+        marginBottom: (canApprove || canReject || item.review_note || isDone || isEscalated) ? 10 : 0,
+      }}>
         {['order', 'demand_notice', 'computation_sheet'].map(dt => (
           docsMap[dt] && (
-            <div key={dt} onClick={() => onOpenDoc(docsMap[dt])} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: '#fff', border: `1px solid ${C.border}`, borderRadius: 5, cursor: 'pointer' }}>
-              <span>📄</span>
-              <span style={{ fontSize: 11, fontWeight: 700, color: C.ink }}>{docsMap[dt].file_name}</span>
+            <div
+              key={dt}
+              onClick={() => onOpenDoc(docsMap[dt])}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '7px 10px', background: '#fff',
+                border: `1px solid ${C.border}`, borderRadius: 5, cursor: 'pointer',
+                transition: 'all .12s',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = C.blueBg; e.currentTarget.style.borderColor = C.blueBorder; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = C.border; }}
+            >
+              <span style={{ fontSize: 14 }}>📄</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                  fontSize: 9.5, fontWeight: 800, color: C.slate,
+                  textTransform: 'uppercase', letterSpacing: '.04em',
+                }}>
+                  {DOC_LABELS[dt]}
+                </div>
+                <div style={{
+                  fontSize: 11.5, fontWeight: 600, color: C.blue,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  textDecoration: 'underline', marginTop: 1,
+                }}>
+                  {docsMap[dt].file_name}
+                </div>
+              </div>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDownloadFile(docsMap[dt].file_url, docsMap[dt].file_name);
+                }}
+                title="Download"
+                style={{
+                  width: 24, height: 24, border: `1px solid ${C.border}`, borderRadius: 4,
+                  background: '#fff', color: C.slate, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >⬇</button>
             </div>
           )
         ))}
       </div>
+
+      {/* ─── REVIEWER INFO (Approved/Rejected/Escalated) below the files ─── */}
+      {isDone && (
+        <div style={{
+          fontSize: 11.5,
+          color: item.status === 'approved' ? C.green : C.red,
+          fontWeight: 600,
+          marginTop: 4,
+          marginBottom: (canApprove || canReject || item.review_note) ? 10 : 0,
+        }}>
+          {item.status === 'approved' ? '✓ Approved' : '✕ Rejected'}
+          {item.reviewed_by_name && (
+            <> by <b style={{ color: C.ink }}>{item.reviewed_by_name}</b></>
+          )}
+          {item.reviewed_at && ` · ${fmtDateTime(item.reviewed_at)}`}
+          {!item.reviewed_by_name && !item.reviewed_at && (
+            <span style={{ fontStyle: 'italic', color: C.muted }}> · reviewer details not recorded</span>
+          )}
+        </div>
+      )}
+
+      {isEscalated && (
+        <div style={{
+          fontSize: 11.5, color: C.purple, fontWeight: 600, marginTop: 4,
+          marginBottom: (canApprove || canReject) ? 10 : 0,
+        }}>
+          ↑ Moved to CEO
+          {item.reviewed_by_name && <> · last action by <b style={{ color: C.ink }}>{item.reviewed_by_name}</b></>}
+          {item.reviewed_at && ` · ${fmtDateTime(item.reviewed_at)}`}
+        </div>
+      )}
+
+      {/* ─── REJECTION REASON ─── */}
+      {item.status === 'rejected' && item.review_note && (
+        <div style={{
+          marginBottom: (canApprove || canReject) ? 10 : 0,
+          padding: '8px 12px', background: C.redBg, border: `1px solid ${C.redBorder}`,
+          borderRadius: 7, fontSize: 12, color: C.red,
+        }}>
+          <div style={{ fontSize: 10, fontWeight: 800, marginBottom: 3, textTransform: 'uppercase' }}>
+            Rejection reason
+          </div>
+          <div style={{ whiteSpace: 'pre-wrap' }}>{item.review_note}</div>
+        </div>
+      )}
+
+      {/* ─── ACTION BUTTONS ─── */}
       {(canApprove || canReject) && (
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          {canReject && <button onClick={onReject} disabled={busy} style={{ padding: '7px 14px', borderRadius: 7, border: `1.5px solid ${C.redBorder}`, background: '#fff', color: C.red, fontSize: 12, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>Reject</button>}
-          {canApprove && <button onClick={onApprove} disabled={busy} style={{ padding: '7px 18px', borderRadius: 7, border: 'none', background: busy ? C.muted : `linear-gradient(135deg, ${C.green}, #0F7A5A)`, color: '#fff', fontSize: 12, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>✓ Approve & Close</button>}
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
+          {canReject && (
+            <button onClick={onReject} disabled={busy} style={{
+              padding: '7px 14px', borderRadius: 7,
+              border: `1.5px solid ${C.redBorder}`, background: '#fff', color: C.red,
+              fontSize: 12, fontWeight: 700, cursor: busy ? 'wait' : 'pointer',
+            }}>
+              Reject
+            </button>
+          )}
+          {canApprove && (
+            <button onClick={onApprove} disabled={busy} style={{
+              padding: '7px 18px', borderRadius: 7, border: 'none',
+              background: busy ? C.muted : `linear-gradient(135deg, ${C.green}, #0F7A5A)`,
+              color: '#fff', fontSize: 12, fontWeight: 700,
+              cursor: busy ? 'wait' : 'pointer',
+            }}>
+              {busy ? 'Working…' : '✓ Approve & Close'}
+            </button>
+          )}
         </div>
       )}
     </div>

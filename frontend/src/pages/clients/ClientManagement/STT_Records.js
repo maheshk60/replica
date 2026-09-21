@@ -65,22 +65,53 @@ export const formatDurationFromMillis = (ms) => {
     return h > 0 ? `${h}h ${m}m` : `${m}m`;
 };
 
+
+
 // const getEffectiveTaskStatus = (task) => {
 //     if (!task) return 'Loading...';
 //     if (task.status === 'Done') return 'Done';
+//     // ↓ Check overdue BEFORE returning the DB status
 //     if (task.due_date && moment(task.due_date).isBefore(moment(), 'day')) return 'Over Due';
-//     return task.status;
+//     return task.status; // 'To Do' or 'In Progress' only if not overdue
 // };
+
+// const STATUS_COLOR = { 'To Do': 'purple', 'In Progress': 'yellow', 'Done': 'green', 'Over Due': 'red' };
+
+
+const STATUS_COLOR = { 
+    'To Do': 'purple', 
+    'In Progress': 'yellow', 
+    'Done': 'green', 
+    'Over Due': 'red',
+    'wip': 'orange',
+    'under_review': 'geekblue',
+    'attention_required': 'volcano',
+    'open': 'cyan',
+    'closed': 'success'
+};
 
 const getEffectiveTaskStatus = (task) => {
     if (!task) return 'Loading...';
+    
+    // Check if it has an overridden legal status first
+    if (task.legal_status) return task.legal_status;
+
+    // Standard STT logic fallback
     if (task.status === 'Done') return 'Done';
-    // ↓ Check overdue BEFORE returning the DB status
     if (task.due_date && moment(task.due_date).isBefore(moment(), 'day')) return 'Over Due';
-    return task.status; // 'To Do' or 'In Progress' only if not overdue
+    return task.status; 
 };
 
-const STATUS_COLOR = { 'To Do': 'purple', 'In Progress': 'yellow', 'Done': 'green', 'Over Due': 'red' };
+
+
+
+
+
+
+
+
+
+
 
 // ─────────────────────────────────────────────────────────────
 // Lookup cache — fetched once per session
@@ -758,32 +789,50 @@ const TaskTableView = ({ tasks, onTaskClick, pagination, setPagination, loading,
             sorter: (a, b) => moment(a.due_date).unix() - moment(b.due_date).unix(),
             render: (d) => d ? moment(d).format("YYYY-MM-DD") : "-",
         },
+        
         // {
-        //     title: "Status", dataIndex: "status", key: "status",
-        //     sorter: (a, b) => (a.status || "").localeCompare(b.status || ""),
-        //     render: (s) => {
-        //         if (typeof s !== "string") return null;
-        //         return <Tag color={STATUS_COLOR[s] || 'default'}>{s.toUpperCase()}</Tag>;
-        //     },
+        //   title: "Status",
+        //   key: "status",
+        //   sorter: (a, b) =>
+        //       getEffectiveTaskStatus(a).localeCompare(
+        //           getEffectiveTaskStatus(b)
+        //       ),
+
+        //   render: (_, record) => {
+        //       const status = getEffectiveTaskStatus(record);
+
+        //       return (
+        //           <Tag color={STATUS_COLOR[status] || "default"}>
+        //               {status.toUpperCase()}
+        //           </Tag>
+        //       );
+        //   },
         // },
+
+
         {
-          title: "Status",
-          key: "status",
-          sorter: (a, b) =>
-              getEffectiveTaskStatus(a).localeCompare(
-                  getEffectiveTaskStatus(b)
-              ),
+            title: "Status",
+            key: "status",
+            sorter: (a, b) => getEffectiveTaskStatus(a).localeCompare(getEffectiveTaskStatus(b)),
+            render: (_, record) => {
+                const status = getEffectiveTaskStatus(record);
+                // Formats 'attention_required' -> 'ATTENTION REQUIRED'
+                const displayStatus = status.replace(/_/g, ' ').toUpperCase();
 
-          render: (_, record) => {
-              const status = getEffectiveTaskStatus(record);
+                return (
+                    <Tag color={STATUS_COLOR[status] || "default"}>
+                        {displayStatus}
+                    </Tag>
+                );
+            },
+        },
 
-              return (
-                  <Tag color={STATUS_COLOR[status] || "default"}>
-                      {status.toUpperCase()}
-                  </Tag>
-              );
-          },
-      },
+
+
+
+
+
+
         {
             title: "Created By", dataIndex: "created_by_name", key: "created_by_name",
             sorter: (a, b) => (a.created_by_name || "").localeCompare(b.created_by_name || ""),
@@ -870,13 +919,36 @@ const FilterForm = ({ clients, subservices, spocs, teams, tasks, onFilter, onRes
                         </Select>
                     </Form.Item>
                 </Col>
-                <Col xs={24} sm={12} md={8} lg={6}>
+
+
+
+
+                {/* <Col xs={24} sm={12} md={8} lg={6}>
                     <Form.Item name="status" label="Status">
                         <Select mode="multiple" allowClear placeholder="Select Status">
                             {['Done','In Progress','Over Due','To Do'].sort().map(s=><Option key={s} value={s}>{s}</Option>)}
                         </Select>
                     </Form.Item>
+                </Col> */}
+
+
+                <Col xs={24} sm={12} md={8} lg={6}>
+                    <Form.Item name="status" label="Status">
+                        <Select mode="multiple" allowClear placeholder="Select Status">
+                            {[
+                                'Done', 'In Progress', 'Over Due', 'To Do',
+                                'wip', 'under_review', 'open', 'closed', 'attention_required'
+                            ].map(s => (
+                                <Option key={s} value={s}>
+                                    {s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                                </Option>
+                            ))}
+                        </Select>
+                    </Form.Item>
                 </Col>
+
+
+
                 <Col xs={24} sm={12} md={8} lg={6}>
                     <Form.Item name="createdBy" label="Created By">
                         <Select mode="multiple" allowClear showSearch placeholder="Select User(s)" optionFilterProp="children">
