@@ -133,3 +133,28 @@ def get_form_metadata(sub_service_slug):
         'portal_url': 'https://www.mca.gov.in/',
         'required_docs': [],
     })
+
+
+MCA_AUTO_CLOSE_ON_SRN_NAMES = {
+    'Addition of Auditor ADT-1',
+    'AOC-4 Filing',
+    'AOC-4 XBRL Filing',
+    'BEN forms filing',
+    'DPT-3 Filing',
+    'MGT-7 filing',
+    'MGT-7A filing',
+    'MSME Form-1 Filing',
+    'ROC DIR-3 Returns',
+    'Reconciliation of Share Capital Audit Report(ISIN Clients) - PAS-6',
+    'Form - 11 LLP',
+    'Form - 8 LLP',
+}
+
+def is_auto_close_on_srn(sub_service) -> bool:
+    if not sub_service:
+        return False
+    name = (sub_service.name if hasattr(sub_service, 'name') else sub_service) or ''
+    name = name.strip()
+    if name in MCA_AUTO_CLOSE_ON_SRN_NAMES:
+        return True
+    return name.lower() in {n.lower() for n in MCA_AUTO_CLOSE_ON_SRN_NAMES}

@@ -1,31 +1,22 @@
+// IncomeTaxDashboard.js — Income Tax litigation dashboard (route page).
+// Title, API, paths and the New Case form all come from LITIGATION_TYPES.
 
 import LitigationDashboard from '../LitigationDashboard';
-import { api } from '../../../services/api';
-import IncomeTaxCaseModal from './IncomeTaxCaseModal';
+import { LITIGATION_TYPES } from '../LegalModals';
 
-/* ─── LOCAL API DEFINITIONS (used only by this file) ─── */
-const incomeTaxLitigationApi = {
-  get:     (params)    => api.get('legal-services/income-tax-litigations/', { params }),
-  getById: (id)        => api.get(`legal-services/income-tax-litigations/${id}/`),
-  create:  (data)      => api.post('legal-services/income-tax-litigations/', data),
-  update:  (id, data)  => api.put(`legal-services/income-tax-litigations/${id}/`, data),
-  patch:   (id, data)  => api.patch(`legal-services/income-tax-litigations/${id}/`, data),
-  delete:  (id)        => api.delete(`legal-services/income-tax-litigations/${id}/`),
-};
+const T = LITIGATION_TYPES['income-tax'];
 
 export default function IncomeTaxDashboard() {
   return (
     <LitigationDashboard
-      title="Income Tax Litigations"
-      subtitle="Income Tax notice and appeal case tracking"
-      api={incomeTaxLitigationApi}
-      CaseModal={IncomeTaxCaseModal}
-      caseType="income-tax-litigations"
-      breadcrumbs={[
-        { label: 'Litigations', path: '/legal-services/litigations' },
-      ]}
-      clientPath={(c) => `/legal-services/clients/${c.client}?type=income-tax&caseId=${c.id}`}
-      jobListPath="/legal-services/litigations/income-tax/jobs"
+      title={T.title}
+      subtitle={T.subtitle}
+      api={T.api}
+      CaseModal={T.CaseModal}
+      caseType={T.caseType}
+      breadcrumbs={[{ label: 'Litigations', path: '/legal-services/litigations' }]}
+      clientPath={T.clientPath}
+      jobListPath={T.jobListPath}
     />
   );
 }

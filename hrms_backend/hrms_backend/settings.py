@@ -140,7 +140,7 @@ CORS_ALLOW_HEADERS = [
     'content-type', 'dnt', 'origin', 'user-agent',
     'x-csrftoken', 'x-requested-with', 'x-litigation-type',       # ← NEW
     'x-court-case-id',   
-    'x-Job-Id',
+    'x-job-id',
 ]
 
 CSRF_COOKIE_NAME     = 'csrftoken'

@@ -1,0 +1,266 @@
+/* One modal shape for the entire app: same header, body, footer, spacing.
+   Modal.jsx wraps antd's own <Modal> internally, so these rules target
+   antd's real class names (.ant-modal-*) rather than custom markup —
+   this is what actually renders now, for every modal in the app.
+
+   Design reference: flat and minimal throughout — no colored/gradient
+   header bar, generous rounded corners, a small icon avatar next to the
+   title with a muted subtitle underneath, bordered form fields that only
+   pick up indigo on focus, and a solid (not gradient) indigo primary
+   button. Indigo is reserved for focus rings, buttons, checkboxes, and
+   links — everything else stays white/slate. */
+
+.ant-modal-content {
+  padding: 0 !important;
+  border-radius: 0 !important;
+  overflow: hidden !important;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.16), 0 4px 12px rgba(15, 23, 42, 0.08) !important;
+}
+.ant-modal-mask {
+  background: rgba(15, 23, 42, 0.45) !important;
+}
+
+/* ---- Header: blue gradient, matching the app's established accent look ---- */
+.ant-modal-header {
+  margin: 0 !important;
+  padding: var(--space-4) var(--space-5) !important;
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-hover)) !important;
+  border-bottom: none !important;
+  border-radius: 0 !important;
+}
+.ant-modal-title {
+  color: #fff !important;
+  font-size: var(--font-size-lg) !important;
+  font-weight: var(--font-weight-semibold) !important;
+}
+.ant-modal-close {
+  top: var(--space-4) !important;
+  inset-inline-end: var(--space-5) !important;
+  color: rgba(255, 255, 255, 0.75) !important;
+}
+.ant-modal-close:hover {
+  color: #fff !important;
+  background: rgba(255, 255, 255, 0.15) !important;
+}
+
+/* Icon avatar + title/subtitle row — used when Modal.jsx is given an
+   `icon` and/or `subtitle` prop; a plain string title (most modals)
+   renders without this and just shows as a bold heading. */
+.modal-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+.modal-icon-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+.modal-title-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 4px;
+}
+.modal-title-text {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: #fff;
+}
+.modal-subtitle-text {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-regular);
+  color: rgba(255, 255, 255, 0.75);
+}
+
+/* ---- Body: flat white, no tint ---- */
+.ant-modal-body {
+  padding: var(--space-3) var(--space-5) var(--space-5) !important;
+  background: var(--color-surface) !important;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+/* ---- Footer: same flat white, no divider — reads as a natural
+   continuation of the body rather than a separated bar, closer to the
+   reference (its primary button sits directly in the form, not behind
+   a visually separated footer strip). ---- */
+.ant-modal-footer {
+  margin: 0 !important;
+  padding: 0 var(--space-5) var(--space-5) !important;
+  border-top: none !important;
+  background: var(--color-surface) !important;
+  display: flex !important;
+  justify-content: flex-end !important;
+  gap: var(--space-2) !important;
+}
+
+/* Alternate dark-gradient header variant: Modal.jsx adds this className
+   when headerVariant="dark" is passed — bolder look for profile-style
+   modals that want more visual weight than the standard flat header. */
+.modal-dark-header .ant-modal-content {
+  border-radius: 0 !important;
+}
+.modal-dark-header .ant-modal-header {
+  background: linear-gradient(135deg, var(--color-slate-900), #1e293b) !important;
+  padding: var(--space-4) var(--space-5) !important;
+}
+.modal-dark-header .ant-modal-title,
+.modal-dark-header .modal-title-text {
+  color: #fff !important;
+}
+.modal-dark-header .modal-subtitle-text {
+  color: rgba(255, 255, 255, 0.7);
+}
+.modal-dark-header .ant-modal-close {
+  color: rgba(255, 255, 255, 0.75) !important;
+}
+.modal-dark-header .ant-modal-close:hover {
+  color: #fff !important;
+  background: rgba(255, 255, 255, 0.15) !important;
+}
+.modal-dark-header .ant-modal-body {
+  background: var(--color-slate-50) !important;
+  padding-top: var(--space-5) !important;
+}
+
+/* Cards inside a modal: flat bordered boxes on the white body. */
+.ant-modal-body .card {
+  border: 1px solid var(--color-slate-200);
+  border-radius: var(--radius-md);
+}
+
+/* Inputs, selects, pickers inside a modal: bordered, no fill or shadow
+   at rest — only the border changes color on hover, and a focus ring
+   appears on focus, matching the reference's plain outlined fields. */
+.ant-modal-body .ant-input,
+.ant-modal-body .ant-input-affix-wrapper,
+.ant-modal-body .ant-select-selector,
+.ant-modal-body .ant-picker,
+.ant-modal-body textarea.ant-input {
+  border-radius: var(--radius-md) !important;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+.ant-modal-body .ant-input:hover,
+.ant-modal-body .ant-input-affix-wrapper:hover,
+.ant-modal-body .ant-select:not(.ant-select-disabled):hover .ant-select-selector,
+.ant-modal-body .ant-picker:hover {
+  border-color: var(--color-primary) !important;
+}
+.ant-modal-body .ant-input:focus,
+.ant-modal-body .ant-input-focused,
+.ant-modal-body .ant-input-affix-wrapper-focused,
+.ant-modal-body .ant-select-focused:not(.ant-select-disabled) .ant-select-selector,
+.ant-modal-body .ant-picker-focused {
+  border-color: var(--color-primary) !important;
+  box-shadow: none !important;
+}
+
+/* Buttons inside a modal (footer or body): rounder corners, a solid
+   (not gradient) primary fill, plain bordered secondary — matching the
+   reference's flat button style. Covers both our .btn classes and any
+   plain antd <Button> a page still uses inside a modal. */
+.ant-modal-footer .btn,
+.ant-modal-footer .ant-btn,
+.ant-modal-body .btn,
+.ant-modal-body .ant-btn {
+  border-radius: var(--radius-md) !important;
+  transition: background 0.15s ease, border-color 0.15s ease !important;
+}
+.ant-modal-footer .btn-primary,
+.ant-modal-footer .ant-btn-primary,
+.ant-modal-body .btn-primary,
+.ant-modal-body .ant-btn-primary {
+  background: var(--color-primary) !important;
+  border: none !important;
+}
+.ant-modal-footer .btn-primary:hover,
+.ant-modal-footer .ant-btn-primary:hover,
+.ant-modal-body .btn-primary:hover,
+.ant-modal-body .ant-btn-primary:hover {
+  background: var(--color-primary-hover) !important;
+}
+.ant-modal-footer .btn-secondary,
+.ant-modal-body .btn-secondary {
+  background: var(--color-surface) !important;
+  border: 1px solid var(--color-slate-200) !important;
+  color: var(--color-slate-900) !important;
+}
+.ant-modal-footer .btn-secondary:hover,
+.ant-modal-body .btn-secondary:hover,
+.ant-modal-footer .icon-btn:hover {
+  background: var(--color-slate-100) !important;
+}
+
+/* Upload dropzone + trigger button: rounded dashed zone that lights up
+   in the theme's indigo on hover, instead of antd's plain grey default. */
+.ant-modal-body .ant-upload.ant-upload-drag {
+  border: 2px dashed var(--color-slate-200) !important;
+  border-radius: var(--radius-md) !important;
+  background: var(--color-surface) !important;
+  transition: all 0.2s ease !important;
+}
+.ant-modal-body .ant-upload.ant-upload-drag:hover {
+  border-color: var(--color-primary) !important;
+  background: var(--color-primary-light) !important;
+}
+.ant-modal-body .ant-upload-drag-icon .anticon {
+  color: var(--color-primary) !important;
+  font-size: 32px !important;
+}
+.ant-modal-body .ant-upload .ant-btn {
+  border-style: dashed !important;
+  border-radius: var(--radius-md) !important;
+}
+
+/* Select dropdown options: no colored background fill for selected or
+   hovered/active options — antd's default (#e6f4ff, a light blue) reads
+   as an unwanted blue background; a light indigo tint has the same
+   problem at low saturation, easily perceived as "still blue". Selected
+   state is shown with bold, colored TEXT only, no fill at all; hover
+   uses a neutral gray, not any blue/indigo shade. Deliberately NOT
+   scoped under .ant-modal-body — the dropdown list renders in a portal
+   appended to document.body, not as a DOM descendant of the modal, so a
+   modal-scoped selector would silently never match it. This also means
+   the fix applies to every Select in the app, not just ones inside
+   modals, which is the correct scope for the same underlying antd
+   default. */
+.ant-select-dropdown .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  background: transparent !important;
+  color: var(--color-primary) !important;
+  font-weight: var(--font-weight-semibold) !important;
+}
+.ant-select-dropdown .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+  background: var(--color-slate-100) !important;
+  color: inherit !important;
+}
+
+/* Comfortable width/margins on small screens (antd already makes modals
+   responsive; this just tightens the side margins a bit further). */
+@media (max-width: 640px) {
+  .ant-modal {
+    max-width: calc(100vw - 24px) !important;
+    margin: 12px auto !important;
+  }
+  .ant-modal-body {
+    max-height: 60vh;
+  }
+  /* Modals with 3-4 footer buttons (e.g. History/Mark Completed/Close/Save)
+     would otherwise overflow horizontally or get cut off on a narrow
+     screen — stack them full-width instead. */
+  .ant-modal-footer {
+    flex-wrap: wrap !important;
+  }
+  .ant-modal-footer .btn,
+  .ant-modal-footer .ant-btn {
+    flex: 1 1 auto !important;
+    min-width: calc(50% - var(--space-1)) !important;
+  }
+}

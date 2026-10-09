@@ -310,7 +310,7 @@ class MCAFilingDocumentSerializer(serializers.ModelSerializer):
             'id', 'filing', 'file', 'file_url', 'file_name',
             'doc_type', 'parent_draft', 'review_status', 'review_note',
             'reviewed_by', 'reviewed_by_name', 'reviewed_at',
-            'uploaded_by', 'uploaded_by_name', 'uploaded_at',
+            'uploaded_by', 'uploaded_by_name', 'uploaded_at','is_deleted',
         ]
         read_only_fields = [
             'file_name', 'review_status', 'review_note',
@@ -516,6 +516,9 @@ class CaseNoticeSerializer(serializers.ModelSerializer):
             'din_number', 'officer', 'section',
             'notice_date', 'due_date', 'extended_due_date', 'ph_date',
             'status', 'notes',
+            
+            'extension_history', 
+
             'review_status', 'review_note', 'replies_count',
             'reviewed_by', 'reviewed_by_name', 'reviewed_at',
             'created_by', 'created_by_name',

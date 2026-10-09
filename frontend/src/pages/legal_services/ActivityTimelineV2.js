@@ -1,644 +1,322 @@
+// ActivityTimelineV2.js — Activity tab: case summary, notice list (left),
+// selected notice's documents & workflow (right).
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { DownloadOutlined, DeleteOutlined,UploadOutlined } from '@ant-design/icons';
-import { api } from '../../services/api';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Input, message } from 'antd';
 import { useAuth } from '../../contexts/AuthContext';
-import AddNoticeModal, { CloseCaseModal, UploadReplyBundleModal } from './AddNoticeModal';
+import { AddNoticeModal, CloseCaseModal, UploadReplyBundleModal, AddExtensionModal, useConfirm } from './LegalModals';
 import ReplyEditorModal from './ReplyEditorModal';
+import {
+  P, PL, BG, BRD, MUT, INK, GR, GL, RED, REDL, AMB, AMBL, WH,
+  CASE_STATUS, CLOSURE_DOC_TYPES, StatusPill, SectionTitle, Field, FileChip, EmptyState,
+  legalApi, toList, isInList, fmtDate, getDaysInfo, noticeDueDate, isNoticeAttention,
+  openFile, downloadDoc, openHtmlReply, downloadHtmlReplyPdf,
+} from './legalCommon';
 
-// ══════════════════════════════════════════════════════════════════
-// CONSTANTS & THEME
-// ══════════════════════════════════════════════════════════════════
-const MUT = '#8A8FA3';
+const errMsg = (e, fallback) => e?.response?.data?.error || fallback;
 
-const C = {
-  navy: '#1E3A6B', navyMid: '#2A4F8F', navyDark: '#0F1E3D',
-  ink: '#0F172A', slate: '#475569', muted: '#94A3B8',
-  border: '#E7E9F0', borderLight: '#F1F3F8',
-  bg: '#F8FAFC', bgSoft: '#FBFCFE',
-  green: '#0F7A5A', greenBg: '#E6F5EF', greenBorder: '#A7F3D0',
-  amber: '#92620B', amberBg: '#FBF2DE', amberBorder: '#FCD34D',
-  red: '#B42318', redBg: '#FCEBEA', redBorder: '#F2C1BC',
-  blue: '#2563EB', blueBg: '#EFF6FF', blueBorder: '#BFDBFE',
-  purple: '#6D28D9', purpleBg: '#F1E8FE', purpleBorder: '#DDD6FE',
-};
-
-const STATUS_META = {
-  wip:    { label: 'WIP',    color: '#92620B', bg: '#FBF2DE', border: '#F0DDA3' },
-  under_review: { label: 'UNDER REVIEW', color: '#6D28D9', bg: '#F1E8FE', border: '#DDD6FE' },
-  attention_required: { label: 'ATTENTION REQUIRED', color: '#B42318', bg: '#FCEBEA', border: '#F2C1BC' },
-  open:   { label: 'OPEN',   color: '#0369A1', bg: '#E8F4FC', border: '#BEE0F5' },
-  closed: { label: 'CLOSED', color: '#0F7A5A', bg: '#E6F5EF', border: '#B4DFCF' },
-};
-
-const REVIEW_META = {
-  draft:     { label: 'Draft',         color: C.slate, bg: C.bg,      border: C.border },
-  pending:   { label: 'Under Review',  color: C.amber, bg: C.amberBg, border: C.amberBorder },
-  approved:  { label: 'Approved',      color: C.green, bg: C.greenBg, border: C.greenBorder },
-  rejected:  { label: 'Rejected',      color: C.red,   bg: C.redBg,   border: C.redBorder },
-  escalated: { label: 'Move to CEO',     color: C.purple,bg: C.purpleBg,border: C.purpleBorder },
-};
-
-// ══════════════════════════════════════════════════════════════════
-// UTILITIES
-// ══════════════════════════════════════════════════════════════════
-function fmtDate(d) {
-  if (!d) return '—';
-  return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+// Small "⬆ Upload" trigger that opens the native file picker.
+function UploadTrigger({ label = '⬆ Upload', accept, busy, onFile }) {
+  return (
+    <label className="btn btn-secondary" style={{ padding: '3px 10px', fontSize: 11, cursor: busy ? 'wait' : 'pointer', margin: 0 }}>
+      <input type="file" accept={accept} style={{ display: 'none' }} disabled={busy}
+        onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) onFile(f); }} />
+      {busy ? '⏳' : label}
+    </label>
+  );
 }
 
-function truncateName(name, maxLen = 22) {
-  if (!name) return '';
-  if (name.length <= maxLen) return name;
-  const ext = name.split('.').pop();
-  const base = name.substring(0, name.lastIndexOf('.'));
-  const cut = maxLen - ext.length - 4;
-  if (cut < 4) return name.substring(0, maxLen - 3) + '...';
-  return `${base.substring(0, cut)}...${ext}`;
-}
-
-function getDaysInfo(dueDate, noticeStatus) {
-  if (!dueDate) return null;
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const due = new Date(dueDate); due.setHours(0, 0, 0, 0);
-  const diff = Math.ceil((due - today) / (1000 * 60 * 60 * 24));
-  if (noticeStatus === 'open') {
-    if (diff < 0) return null; 
-    if (diff === 0) return { text: 'Due today', color: MUT, urgent: false };
-    return { text: `${diff}d left`, color: MUT, urgent: false };
-  }
-  if (diff < 0) return { text: `${Math.abs(diff)}d overdue`, color: C.red, urgent: true, attention: true };
-  if (diff === 0) return { text: 'Due today', color: C.red, urgent: true, attention: true };
-  if (diff <= 5) return { text: `${diff}d left`, color: C.red, urgent: true, attention: true };
-  if (diff <= 7) return { text: `${diff}d left`, color: C.amber, urgent: false };
-  return { text: `${diff}d left`, color: MUT, urgent: false };
-}
-
-function Toast({ message, type = 'success', onClose }) {
-  useEffect(() => { const timer = setTimeout(onClose, 3000); return () => clearTimeout(timer); }, [onClose]);
-  const bgColor = type === 'success' ? C.green : type === 'error' ? C.red : C.navy;
-  const icon = type === 'success' ? '✓' : type === 'error' ? '✕' : 'ℹ';
+function Muted({ children, boxed }) {
   return (
     <div style={{
-      position: 'fixed', top: 24, right: 24, zIndex: 999999, background: '#fff', border: `1px solid ${bgColor}30`,
-      borderLeft: `4px solid ${bgColor}`, borderRadius: 8, padding: '12px 16px 12px 14px',
-      boxShadow: '0 10px 30px rgba(15,23,42,0.15)', display: 'flex', alignItems: 'center', gap: 12, minWidth: 280, maxWidth: 400,
-      animation: 'toastSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1)', fontFamily: "'Inter','Roboto',sans-serif",
+      fontSize: 11, color: MUT, fontStyle: 'italic',
+      ...(boxed ? { padding: 10, textAlign: 'center', background: 'var(--color-slate-50)', borderRadius: 'var(--radius-sm)' } : {}),
     }}>
-      <style>{`@keyframes toastSlideIn { from { opacity: 0; transform: translateX(30px); } to { opacity: 1; transform: translateX(0); } }`}</style>
-      <div style={{ width: 26, height: 26, borderRadius: '50%', background: bgColor, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, flexShrink: 0 }}>{icon}</div>
-      <div style={{ fontSize: 12.5, fontWeight: 600, color: C.ink, lineHeight: 1.4, flex: 1 }}>{message}</div>
-      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: MUT, fontSize: 16, padding: 0, width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
-    </div>
-  );
-}
-
-function StatusPill({ status, size = 'sm' }) {
-  const meta = STATUS_META[status] || STATUS_META.wip;
-  return <span style={{ padding: size === 'sm' ? '1px 6px' : '3px 10px', borderRadius: 4, fontSize: size === 'sm' ? 8.5 : 10, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', background: meta.bg, color: meta.color, border: `1px solid ${meta.border}`, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center' }}>{meta.label}</span>;
-}
-
-function ReviewChip({ pendingList }) {
-  if (!pendingList || pendingList.length === 0) return null;
-  const label = pendingList.length === 1 ? pendingList[0] : `${pendingList.length} Pending Reviews`;
-  return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 4, background: C.amberBg, color: C.amber, border: `1px solid ${C.amberBorder}`, fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap' }}><span style={{ fontSize: 10 }}>⏳</span>{label}</span>;
-}
-
-function StatusCountChip({ status, count }) {
-  const meta = STATUS_META[status];
-  if (!meta) return null;
-  const isEmpty = count === 0;
-  return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 700, color: isEmpty ? MUT : C.slate }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: isEmpty ? C.border : meta.color, flexShrink: 0 }} />{meta.label} <b style={{ color: isEmpty ? MUT : C.ink }}>{count}</b></span>;
-}
-
-function SidebarNoticeRow({ notice, isSelected, onClick }) {
-  const [hover, setHover] = useState(false);
-  const days = getDaysInfo(notice.extended_due_date || notice.due_date, notice.status);
-  const isAttention = !!days?.attention;
-  let bgColor = isSelected ? (isAttention ? '#FEE4E2' : C.blueBg) : (isAttention ? (hover ? '#FEE4E2' : '#FEF2F2') : (hover ? C.bgSoft : '#fff'));
-  const leftBorderColor = isSelected ? (isAttention ? C.red : C.navy) : (isAttention ? C.red : 'transparent');
-
-  return (
-    <div
-      onClick={onClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        padding: '8px 12px',
-        cursor: 'pointer',
-        borderLeft: `2.5px solid ${leftBorderColor}`,
-        background: bgColor,
-        borderBottom: `1px solid ${C.borderLight}`,
-        transition: 'background .12s',
-      }}
-    >
-      {/* Top row: DIN + Status */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <span
-          style={{
-            fontSize: 11,
-            fontWeight: 700,
-            color: isSelected ? C.navy : C.ink,
-            fontFamily: "'Roboto Mono', monospace",
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            minWidth: 0,
-            flex: 1,
-          }}
-          title={notice.din_number || '—'}
-        >
-          {notice.din_number || '—'}
-        </span>
-        <StatusPill status={notice.status} />
-      </div>
-
-      {/* Second row: Officer name */}
-      <div
-        style={{
-          fontSize: 11.5,
-          fontWeight: 600,
-          color: isSelected ? C.navy : C.slate,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          marginTop: 2,
-        }}
-        title={notice.officer || 'No officer'}
-      >
-        {notice.officer || <span style={{ color: MUT, fontStyle: 'italic', fontWeight: 500 }}>No officer</span>}
-      </div>
-
-      {/* Third row: days left / overdue (unchanged) */}
-      {days && (
-        <div style={{ fontSize: 10, fontWeight: 600, color: days.urgent ? days.color : MUT, marginTop: 2 }}>
-          {days.text}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── LARGE SECTION HEADING ──
-function SectionLabel({ children }) {
-  return (
-    <div style={{ marginBottom: 16, marginTop: 28, paddingBottom: 6, borderBottom: `2px solid ${C.borderLight}` }}>
-      <div style={{ fontSize: 13, fontWeight: 800, color: C.navyDark, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-// ── SMALL SUB-HEADING ──
-function SubHeading({ children }) {
-  return (
-    <div style={{ fontSize: 9.5, fontWeight: 800, color: MUT, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
       {children}
     </div>
   );
 }
 
-function PlainField({ label, value, mono, highlight }) {
-  const isEmpty = !value || value === '—';
-  return (
-    <div style={{ minWidth: 0 }}>
-      <div style={{ fontSize: 9.5, fontWeight: 700, color: MUT, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>{label}</div>
-      <div style={{ fontSize: 12.5, fontWeight: 700, color: isEmpty ? '#CBD5E1' : (highlight ? C.navy : C.ink), wordBreak: 'break-word', lineHeight: 1.3, fontFamily: mono ? "'Roboto Mono', monospace" : 'inherit' }}>{value || '—'}</div>
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════════════════
-// COMPACT FILE CARD (Smaller & shorter for cleaner UI)
-// ══════════════════════════════════════════════════════════════════
-function FileCard({ icon, title, status, isHtml, onOpen, onDownload, onDelete, canDelete, deleting }) {
-  const [hover, setHover] = useState(false);
-  const meta = REVIEW_META[status] || STATUS_META[status] || { label: 'Draft', color: C.slate, bg: C.bg, border: C.border };
-  const shortName = truncateName(title, 22); // Strict truncation
-  
+function SidebarNoticeRow({ notice, selected, onClick }) {
+  const days = getDaysInfo(noticeDueDate(notice), notice.status);
+  const urgent = isNoticeAttention(notice);
   return (
     <div
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
+      onClick={onClick}
       style={{
-        display: 'flex', alignItems: 'center', gap: 6,
-        padding: '4px 8px', background: hover ? C.bgSoft : '#fff',
-        border: `1px solid ${hover ? C.border : C.borderLight}`,
-        borderRadius: 4, transition: 'all 0.1s', cursor: 'pointer',
-        width: '100%', maxWidth: 240, boxSizing: 'border-box', height: 28 // ✅ Compact size
+        padding: '8px 12px', cursor: 'pointer', borderBottom: `1px solid ${BRD}`,
+        borderLeft: `3px solid ${selected ? (urgent ? RED : P) : urgent ? RED : 'transparent'}`,
+        background: selected ? (urgent ? REDL : PL) : urgent ? '#FFF7F7' : WH,
       }}
-      onClick={onOpen}
-      title={title}
     >
-      <div style={{ fontSize: 12, color: C.muted, flexShrink: 0 }}>{icon || (isHtml ? '📝' : '📄')}</div>
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
-        <div style={{ fontSize: 10.5, fontWeight: 600, color: C.ink, whiteSpace: 'nowrap' }}>
-          {shortName}
-        </div>
-        {status && status !== 'not_applicable' && (
-          <span style={{ fontSize: 7, fontWeight: 800, padding: '1px 4px', borderRadius: 2, background: meta.bg, color: meta.color, border: `1px solid ${meta.border}`, textTransform: 'uppercase', flexShrink: 0 }}>
-            {meta.label}
-          </span>
-        )}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <span style={{ fontSize: 11.5, fontWeight: 700, color: selected ? P : INK, fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {notice.din_number || '—'}
+        </span>
+        <StatusPill status={notice.status} />
       </div>
-      <div style={{ display: 'flex', gap: 2, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-        {onDownload && (
-          <button onClick={onDownload} title="Download" style={{ width: 18, height: 18, border: `1px solid ${C.border}`, borderRadius: 3, background: '#fff', color: C.slate, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
-            <DownloadOutlined style={{ fontSize: 9 }} />
-          </button>
-        )}
-        {canDelete && (
-          <button onClick={onDelete} disabled={deleting} title="Delete" style={{ width: 18, height: 18, border: `1px solid ${C.redBorder}`, borderRadius: 3, background: '#fff', color: C.red, cursor: deleting ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, opacity: deleting ? 0.5 : 1 }}>
-            <DeleteOutlined style={{ fontSize: 9 }} />
-          </button>
-        )}
+      <div style={{ fontSize: 11.5, fontWeight: 600, color: notice.officer ? 'var(--color-slate-600)' : MUT, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {notice.officer || 'No officer'}
       </div>
+      {days && <div style={{ fontSize: 10, fontWeight: 600, color: days.urgent ? days.color : MUT, marginTop: 2 }}>{days.text}</div>}
     </div>
   );
 }
 
 // ══════════════════════════════════════════════════════════════════
-// NOTICE DETAIL VIEW
+// SELECTED NOTICE
 // ══════════════════════════════════════════════════════════════════
+
 function NoticeDetailView({
-  notice, replies, allReplies, isAssignedMaker, isFounder,isCaseClosed,activityCase,
-  onReply, onEdit, onUploadReplyClick,
-  uploadingCourtNotice, uploadingAck, uploadingSupportId, deletingId,
-  onUploadCourtNotice, onUploadAck, onUploadSupportDoc, onDeleteDoc,
-  onOpenDoc, onDownloadDoc,
-  onOpenReply, onDownloadReply, onDeleteReply,
-  pendingReviewLabels, hasPendingNoticeEdit,
-  onSubmitDocs, submittingDocs,
+  notice, allReplies, isMaker, isCaseClosed, activityCase, pendingLabel, hasPendingNoticeEdit,
+  uploading, deletingId, submitting,
+  onEdit, onReply, onUploadReplyClick, onUpload, onUploadSupport, onDeleteDoc, onDeleteReply, onSubmitDocs,
+  onAddExtension, // ✅ NEW PROP ADDED
 }) {
-  if (!notice) {
-    return (
-      <div style={{ padding: 60, textAlign: 'center', color: C.muted, fontSize: 13 }}>
-        <div style={{ fontSize: 32, marginBottom: 10, opacity: 0.35 }}>📋</div>
-        <div style={{ fontSize: 13, fontWeight: 700, color: C.slate }}>No notice selected</div>
-      </div>
-    );
-  }
+  if (!notice) return <EmptyState compact icon="📋" text="No notice selected" />;
 
-  
-  const canSeeDrafts = !!isAssignedMaker;
+  // Makers see their own drafts; everyone else only sees submitted work.
+  const docs = (notice.documents || []).filter((d) => d.doc_type === 'court_notice' || d.review_status !== 'draft' || isMaker);
+  const htmlReplies = (allReplies || []).filter((r) => r.status !== 'draft' || isMaker);
 
-  const isVisibleDoc = (d) => {
-    if (!d) return false;
-    if (d.doc_type === 'court_notice') return true; 
-    const rs = d.review_status || 'not_applicable';
-    if (rs === 'draft') return canSeeDrafts;
-    return true; 
-  };
+  const courtNotice = (notice.documents || []).find((d) => d.doc_type === 'court_notice') || null;
+  const ackDocs = docs.filter((d) => d.doc_type === 'acknowledgment');
+  const ack = ackDocs.find((d) => d.review_status === 'approved') || ackDocs[0] || null;
+  const supportDocs = docs.filter((d) => ['pending_support', 'supporting_doc'].includes(d.doc_type));
 
-  const isVisibleHtmlReply = (r) => {
-    if (!r) return false;
-    if (r.status === 'draft') return canSeeDrafts;
-    return true;
-  };
-
-  const allDocs = (notice.documents || []).filter(isVisibleDoc);
-  const courtNoticeDoc = (notice.documents || []).find(d => d.doc_type === 'court_notice') || null;
-
-  const allAckDocs = allDocs.filter(d => d.doc_type === 'acknowledgment');
-  const acknowledgmentDoc =
-    allAckDocs.find(d => d.review_status === 'approved') ||
-    allAckDocs[0] ||
-    null;
-
-  const replyDocs = allDocs.filter(d => ['pending', 'reply'].includes(d.doc_type));
-  const supportDocs = allDocs.filter(d => ['pending_support', 'supporting_doc'].includes(d.doc_type));
-
-  const visibleHtmlReplies = (allReplies || replies || []).filter(isVisibleHtmlReply);
-
-  const combined = [
-    ...visibleHtmlReplies.map(r => ({
-      ...r,
-      isHtml: true,
-      ts: new Date(r.updated_at || r.created_at).getTime(),
-    })),
-    ...replyDocs.map(d => ({
-      ...d,
-      isHtml: false,
-      ts: new Date(d.reviewed_at || d.uploaded_at).getTime(),
-    })),
+  // Group primary main replies (where reply_version is null) and link extra main replies + supports
+  const primaryMains = [
+    ...htmlReplies.map((r) => ({ ...r, isHtml: true, ts: new Date(r.updated_at || r.created_at).getTime() })),
+    ...docs
+      .filter((d) => ['pending', 'reply'].includes(d.doc_type) && !d.reply_version)
+      .map((d) => ({ ...d, ts: new Date(d.reviewed_at || d.uploaded_at).getTime() })),
   ].sort((a, b) => a.ts - b.ts);
 
-  const versionGroups = combined.map((item, i) => ({
-    version: i + 1,
-    main: item,
-    supports: supportDocs.filter(sd => String(sd.reply_version) === String(item.id))
+  const extraMains = docs.filter((d) => ['pending', 'reply'].includes(d.doc_type) && d.reply_version);
+
+  const versionGroups = primaryMains.map((main, i) => ({
+    v: i + 1,
+    main,
+    extraMains: extraMains.filter((m) => String(m.reply_version) === String(main.id)),
+    supports: main.isHtml ? [] : supportDocs.filter((s) => String(s.reply_version) === String(main.id)),
   }));
 
-  const hasCourtNotice = !!courtNoticeDoc;
-  const hasApprovedReply = combined.some(r => (r.status || r.review_status) === 'approved');
-  const hasDrafts = canSeeDrafts && (
-    (notice.documents || []).some(d => d.review_status === 'draft') ||
-    (allReplies || []).some(r => r.status === 'draft')
-  );
-  const hasPendingAck = allAckDocs.some(d => ['pending', 'escalated'].includes(d.review_status));
 
-  const repliesLocked = !hasCourtNotice;
-  const ackLocked = !hasCourtNotice || !hasApprovedReply;
-  const canUploadAck = isAssignedMaker && hasApprovedReply && !acknowledgmentDoc && !hasPendingAck;
 
-  const canDeleteFile = (item) => isAssignedMaker && ['draft', 'rejected'].includes(item.review_status || item.status);
+  const hasApprovedReply = versionGroups.some((g) => (g.main.status || g.main.review_status) === 'approved');
+  const hasDrafts = isMaker && ((notice.documents || []).some((d) => d.review_status === 'draft') || (allReplies || []).some((r) => r.status === 'draft'));
+  const ackPending = ackDocs.some((d) => ['pending', 'escalated'].includes(d.review_status));
+  const repliesLocked = !courtNotice;
+  const ackLocked = !courtNotice || !hasApprovedReply;
+  const canUploadAck = isMaker && hasApprovedReply && !ack && !ackPending;
+  const editable = (item) => isMaker && ['draft', 'rejected'].includes(item.review_status || item.status);
 
-  const handleDeleteHtmlReply = (reply) => {
-    onDeleteReply(reply);
-  };
-
+  const closureDocs = activityCase?.closure_review_status === 'approved' ? activityCase.closure_documents || [] : [];
+  
+  // ✅ Extract extensions array
+  const extensions = notice.extension_history || [];
+  
   return (
-    <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
-      
-      {/* ────── HEADER ────── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, paddingBottom: 12, borderBottom: `1px solid ${C.borderLight}` }}>
+    <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
+      {/* ── HEADER ── */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingBottom: 12, borderBottom: `1px solid ${BRD}` }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 16, fontWeight: 800, color: C.ink }}>Notice — DIN {notice.din_number || '—'}</span>
-          <StatusPill status={notice.status} size="md" />
-          <ReviewChip pendingList={pendingReviewLabels} />
+          <span style={{ fontSize: 16, fontWeight: 800, color: INK }}>Notice — DIN {notice.din_number || '—'}</span>
+          <StatusPill status={notice.status} />
+          {pendingLabel && (
+            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 9px', borderRadius: 99, background: AMBL, color: AMB }}>⏳ {pendingLabel}</span>
+          )}
         </div>
-        {isAssignedMaker && !hasPendingNoticeEdit && (
-          <button onClick={onEdit} style={{ padding: '5px 12px', border: `1px solid ${C.border}`, borderRadius: 6, background: '#fff', color: C.slate, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>✎ Edit Details</button>
-        )}
+        <div style={{ display: 'flex', gap: 8 }}>
+          {/* ✅ ADD EXTENSION BUTTON */}
+          {isMaker && !isCaseClosed && (
+            <button className="btn btn-secondary" style={{ padding: '4px 12px' }} onClick={onAddExtension}>📅 Add extension</button>
+          )}
+          {isMaker && !hasPendingNoticeEdit && (
+            <button className="btn btn-secondary" style={{ padding: '4px 12px' }} onClick={onEdit}>✎ Edit details</button>
+          )}
+        </div>
       </div>
 
-      {/* ────── NOTICE INFORMATION ────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px 20px', paddingLeft: 16, marginBottom: 20 }}>
-        <PlainField label="DIN Number" value={notice.din_number} mono />
-        <PlainField label="Section" value={notice.section} mono />
-        <PlainField label="Officer" value={notice.officer} />
-        <PlainField label="Notice Date" value={fmtDate(notice.notice_date)} />
-        <PlainField label="Due Date" value={fmtDate(notice.due_date)} highlight />
-        <PlainField label="Extended Due Date" value={fmtDate(notice.extended_due_date)} highlight={!!notice.extended_due_date} />
-        <PlainField label="PH Date" value={fmtDate(notice.ph_date)} highlight={!!notice.ph_date} />
+      {/* ── ALIGNED DATE FIELDS (3 Top / 4 Bottom) ── */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '12px 24px' }}>
+          <Field label="DIN Number" value={notice.din_number} mono />
+          <Field label="Section" value={notice.section} mono />
+          <Field label="Officer" value={notice.officer} />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '12px 16px' }}>
+          <Field label="Notice date" value={fmtDate(notice.notice_date)} />
+          <Field label="Due date" value={fmtDate(notice.due_date)} highlight />
+          {/* <Field label="Extended due date" value={fmtDate(notice.extended_due_date)} highlight /> */}
+          <Field label="PH date" value={fmtDate(notice.ph_date)} highlight />
+        </div>
       </div>
 
-      {/* ────── DOCUMENTS & WORKFLOW ────── */}
-      <SectionLabel>Documents & Workflow</SectionLabel>
-      
-      {/* Strict Alignment Grid for entire workflow block */}
-      <div style={{ display: 'grid', gridTemplateColumns: '32px 1fr 32px 1fr', gap: '12px 16px', marginBottom: 20 }}>
-        
-        {/* ROW 1: Notice & Acknowledgment Headings */}
-        <div></div>
+      {/* ── DOCUMENTS & WORKFLOW ── */}
+      <SectionTitle style={{ marginTop: 24 }}>Documents & workflow</SectionTitle>
+      <div style={{ display: 'grid', gridTemplateColumns: '32px 1fr 56px 1fr', gap: '10px 14px' }}>
+        {/* Notice file + acknowledgment */}
+        <div />
         <div>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,         
-            marginBottom: 8,
-          }}>
-            <SubHeading>
-              Notice <span style={{ color: C.red }}>*</span>
-            </SubHeading>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: MUT }}>Notice <span style={{ color: RED }}>*</span></span>
+            {isMaker && !courtNotice && !isCaseClosed && (
+              <UploadTrigger accept=".pdf,.doc,.docx" busy={uploading === 'court_notice'} onFile={(f) => onUpload(f, 'court_notice')} />
+            )}
+          </div>
+          {courtNotice ? (
+            <FileChip name={courtNotice.file_name} onOpen={() => openFile(courtNotice)} onDownload={() => downloadDoc(courtNotice)}
+              canDelete={isMaker} onDelete={() => onDeleteDoc(courtNotice.id)} deleting={deletingId === courtNotice.id} />
+          ) : <Muted>Not uploaded</Muted>}
+        </div>
+        <div />
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: MUT }}>Acknowledgment</span>
+            {canUploadAck && <UploadTrigger accept=".pdf,.doc,.docx,.jpg,.png" busy={uploading === 'acknowledgment'} onFile={(f) => onUpload(f, 'acknowledgment')} />}
+          </div>
+          {ackLocked ? <Muted boxed>Unlocks after a reply is approved</Muted>
+            : ack ? (
+              <FileChip name={ack.file_name} icon="📥" status={ack.review_status} onOpen={() => openFile(ack)} onDownload={() => downloadDoc(ack)}
+                canDelete={editable(ack)} onDelete={() => onDeleteDoc(ack.id)} deleting={deletingId === ack.id} />
+            ) : <Muted boxed>{ackPending ? 'Under checker review' : 'No file uploaded'}</Muted>}
+        </div>
 
-            {isAssignedMaker && !courtNoticeDoc && !isCaseClosed && (
-              <label style={{
-                padding: '2px 8px',
-                border: `1px dashed ${C.navy}`,
-                borderRadius: 4,
-                color: C.navy,
-                fontSize: 9.5,
-                fontWeight: 700,
-                cursor: uploadingCourtNotice ? 'wait' : 'pointer',
-                margin: 0,
-              }}>
-                <input
-                  type="file"
-                  accept=".pdf,.doc,.docx"
-                  style={{ display: 'none' }}
-                  disabled={uploadingCourtNotice}
-                  onChange={(e) => e.target.files[0] && onUploadCourtNotice(e.target.files[0])}
+        <div style={{ gridColumn: '1 / -1', borderBottom: `1px solid ${BRD}`, margin: '4px 0' }} />
+
+        {/* Replies + supporting docs, one row per version */}
+        <div />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: MUT }}>Replies</span>
+          {isMaker && !repliesLocked && !isCaseClosed && (
+            <>
+              <button className="btn btn-secondary" style={{ padding: '3px 10px', fontSize: 11 }} onClick={onUploadReplyClick}>⬆ Upload</button>
+              <button className="btn btn-primary" style={{ padding: '3px 10px', fontSize: 11 }} onClick={onReply}>📝 Write</button>
+            </>
+          )}
+        </div>
+        <div />
+        <span style={{ fontSize: 11, fontWeight: 700, color: MUT, alignSelf: 'center' }}>Supporting docs</span>
+
+        {repliesLocked || versionGroups.length === 0 ? (
+          <div style={{ gridColumn: '2 / -1' }}>
+            <Muted boxed>{repliesLocked ? 'Upload the notice to unlock replies' : 'No replies yet'}</Muted>
+          </div>
+        ) : versionGroups.map(({ v, main, extraMains, supports }) => {
+          const status = main.status || main.review_status;
+          return (
+            <React.Fragment key={`${main.isHtml ? 'h' : 'd'}-${main.id}`}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: P, textAlign: 'center', paddingTop: 5 }}>v{v}</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <FileChip
+                  name={main.isHtml ? main.title || 'Untitled' : main.file_name}
+                  icon={main.isHtml ? '📝' : '📄'} status={status}
+                  onOpen={() => (main.isHtml ? openHtmlReply(main) : openFile(main))}
+                  onDownload={() => (main.isHtml
+                    ? downloadHtmlReplyPdf(main).then(() => message.success('PDF downloaded')).catch(() => message.error('PDF failed'))
+                    : downloadDoc(main))}
+                  canDelete={editable(main)}
+                  onDelete={() => (main.isHtml ? onDeleteReply(main) : onDeleteDoc(main.id))}
+                  deleting={deletingId === (main.isHtml ? `reply-${main.id}` : main.id)}
                 />
-                {uploadingCourtNotice ? '⏳' : '⬆ Upload'}
-              </label>
-            )}
-          </div>
-          {courtNoticeDoc ? (
-            <FileCard title={courtNoticeDoc.file_name} status="not_applicable" onOpen={() => onOpenDoc(courtNoticeDoc)} onDownload={() => onDownloadDoc(courtNoticeDoc)} canDelete={isAssignedMaker} onDelete={() => onDeleteDoc(courtNoticeDoc.id)} deleting={deletingId === courtNoticeDoc.id} />
-          ) : <span style={{ fontSize: 11, color: MUT, fontStyle: 'italic' }}>Not uploaded</span>}
-        </div>
-
-        <div></div> {/* Empty Spacer Column */}
-
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <SubHeading>Acknowledgment</SubHeading>
-            {canUploadAck && (
-              <label style={{ padding: '2px 8px', border: `1px dashed ${C.purple}`, borderRadius: 4, color: C.purple, fontSize: 9.5, fontWeight: 700, cursor: uploadingAck ? 'wait' : 'pointer' }}>
-                <input type="file" accept=".pdf,.doc,.docx,.jpg,.png" style={{ display: 'none' }} onChange={(e) => e.target.files[0] && onUploadAck(e.target.files[0])} disabled={uploadingAck} />
-                {uploadingAck ? '⏳' : '⬆ Upload'}
-              </label>
-            )}
-          </div>
-          {ackLocked ? (
-            <div style={{ padding: '6px', textAlign: 'center', fontSize: 10, color: MUT, fontStyle: 'italic', background: C.bgSoft, borderRadius: 4, maxWidth: 240 }}>Unlock after reply approval</div>
-          ) : acknowledgmentDoc ? (
-            <FileCard title={acknowledgmentDoc.file_name} status={acknowledgmentDoc.review_status} onOpen={() => onOpenDoc(acknowledgmentDoc)} onDownload={() => onDownloadDoc(acknowledgmentDoc)} canDelete={canDeleteFile(acknowledgmentDoc)} onDelete={() => onDeleteDoc(acknowledgmentDoc.id)} deleting={deletingId === acknowledgmentDoc.id} />
-          ) : (
-            <div style={{ padding: '6px', textAlign: 'center', fontSize: 10, color: MUT, fontStyle: 'italic', background: C.bgSoft, borderRadius: 4, maxWidth: 240 }}>
-              {hasPendingAck ? 'Under checker review' : 'No file uploaded'}
-            </div>
-          )}
-        </div>
-
-        {/* SPACING ROW */}
-        <div style={{ gridColumn: '1 / -1', height: 16, borderBottom: `1px solid ${C.borderLight}` }}></div>
-
-        {/* ROW 2: Replies & Supports Headings */}
-        <div></div>
-        
-        {/* Buttons moved next to Replies Heading */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingTop: 8 }}>
-          <SubHeading>Replies</SubHeading>
-          {isAssignedMaker && !repliesLocked && !isCaseClosed && (
-            <div style={{ display: 'flex', gap: 5, paddingBottom: 6 }}>
-              <button onClick={onUploadReplyClick} style={{ padding: '3px 10px', border: `1px solid ${C.navy}`, background: '#fff', color: C.navy, borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>⬆ Upload</button>
-              <button onClick={onReply} style={{ padding: '3px 10px', border: 'none', background: C.navy, color: '#fff', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}>📝 Reply</button>
-            </div>
-          )}
-        </div>
-
-        <div></div> {/* Empty Spacer Column */}
-        
-        <div style={{ paddingTop: 8 }}>
-          <SubHeading>Supporting Docs</SubHeading>
-        </div>
-
-        {/* ROW 3+: Dynamic Version Rows */}
-        {repliesLocked ? (
-          <div style={{ gridColumn: '2 / -1', padding: '16px', textAlign: 'center', fontSize: 11, color: MUT, fontStyle: 'italic', background: C.bgSoft, borderRadius: 6, maxWidth: 500 }}>Upload Notice to unlock</div>
-        ) : versionGroups.length === 0 ? (
-          <div style={{ gridColumn: '2 / -1', padding: '16px', textAlign: 'center', fontSize: 11, color: MUT, fontStyle: 'italic', background: C.bgSoft, borderRadius: 6, maxWidth: 500 }}>No replies yet</div>
-        ) : (
-          versionGroups.map(vg => {
-            const mainStatus = vg.main.status || vg.main.review_status;
-            // The Maker can only upload support docs if the main reply is unlocked (draft/rejected)
-            const canAddSupport = canDeleteFile(vg.main); 
-
-            return (
-              <React.Fragment key={`v-${vg.version}`}>
-                
-                {/* COLUMN 1: Version Label */}
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 6 }}>
-                  <div style={{ fontSize: 12, fontWeight: 800, color: C.blue }}>v{vg.version}</div>
-                </div>
-                
-                {/* COLUMN 2: Main Reply Document */}
-                <div>
-                  {vg.main.isHtml ? (
-                    <FileCard isHtml title={vg.main.title || 'Untitled'} status={mainStatus} onOpen={() => onOpenReply(vg.main)} onDownload={() => onDownloadReply(vg.main)} canDelete={canDeleteFile(vg.main)} onDelete={() => handleDeleteHtmlReply(vg.main)} deleting={deletingId === `reply-${vg.main.id}`} />
-                  ) : (
-                    <FileCard title={vg.main.file_name} status={mainStatus} onOpen={() => onOpenDoc(vg.main)} onDownload={() => onDownloadDoc(vg.main)} canDelete={canDeleteFile(vg.main)} onDelete={() => onDeleteDoc(vg.main.id)} deleting={deletingId === vg.main.id} />
-                  )}
-                </div>
-
-                {/* COLUMN 3: Small Upload Button for Support Docs */}
-                <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 2 }}>
-                  {canAddSupport && (
-                    <label 
-                      title="Upload Supporting Document"
-                      style={{
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        height: 24, padding: '0 6px',                 // was width: 24
-                        border: `1px dashed ${C.navy}`,
-                        borderRadius: 4, background: '#fff', color: C.navy,
-                        fontSize: 9, fontWeight: 700,                 // was 16
-                        whiteSpace: 'nowrap',
-                        cursor: uploadingSupportId === vg.main.id ? 'wait' : 'pointer',
-                        opacity: uploadingSupportId === vg.main.id ? 0.5 : 1,
-                        transition: 'all 0.1s ease',
-                      }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = C.blueBg; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; }}
-                    >
-                      <input 
-                        type="file" 
-                        accept=".pdf,.doc,.docx,.jpg,.png,.xlsx,.xls" 
-                        style={{ display: 'none' }}
-                        disabled={uploadingSupportId === vg.main.id}
-                        onChange={(e) => {
-                          if (e.target.files[0]) {
-                            onUploadSupportDoc(e.target.files[0], vg.main.id);
-                            e.target.value = '';
-                          }
-                        }}
-                      />
-                      {uploadingSupportId === vg.main.id ? '⏳' : '+ Add'}   {/* was '+' */}
-                    </label>
-                  )}
-                </div>
-
-                {/* COLUMN 4: Supporting Docs List */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {vg.supports.length === 0 ? (
-                    <span style={{ fontSize: 10, color: MUT, fontStyle: 'italic', paddingTop: 6 }}>No supporting docs</span>
-                  ) : vg.supports.map(sd => (
-                    <FileCard key={sd.id} icon="📎" title={sd.file_name} status={mainStatus} onOpen={() => onOpenDoc(sd)} onDownload={() => onDownloadDoc(sd)} canDelete={canDeleteFile(sd)} onDelete={() => onDeleteDoc(sd.id)} deleting={deletingId === sd.id} />
-                  ))}
-                </div>
-                
-              </React.Fragment>
-            );
-          })
-        )}
+                {extraMains.map((em) => (
+                  <FileChip
+                    key={em.id} name={em.file_name} icon="📄" status={status}
+                    onOpen={() => openFile(em)} onDownload={() => downloadDoc(em)}
+                    canDelete={editable(em)} onDelete={() => onDeleteDoc(em.id)} deleting={deletingId === em.id}
+                  />
+                ))}
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                {editable(main) && (
+                  <UploadTrigger label="+ Add" accept=".pdf,.doc,.docx,.jpg,.png,.xlsx,.xls" busy={uploading === `support-${main.id}`}
+                    onFile={(f) => onUploadSupport(f, main.id)} />
+                )}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {supports.length === 0 ? <Muted>No supporting docs</Muted> : supports.map((s) => (
+                  <FileChip key={s.id} name={s.file_name} icon="📎" status={status} onOpen={() => openFile(s)} onDownload={() => downloadDoc(s)}
+                    canDelete={editable(s)} onDelete={() => onDeleteDoc(s.id)} deleting={deletingId === s.id} />
+                ))}
+              </div>
+            </React.Fragment>
+          );
+        })}
       </div>
 
-      {/* ────── CASE CLOSURE DOCUMENTS ────── */}
-      {activityCase?.closure_review_status === 'approved' &&
-       activityCase?.closure_documents?.length > 0 && (() => {
-        const CLOSURE_LABELS = {
-          order: 'Order Copy',
-          demand_notice: 'Demand Notice',
-          computation_sheet: 'Computation Sheet',
-        };
-        const orderedTypes = ['order', 'demand_notice', 'computation_sheet'];
-        const closureMap = {};
-        (activityCase.closure_documents || []).forEach(d => { closureMap[d.doc_type] = d; });
+      {closureDocs.length > 0 && (
+        <>
+          <SectionTitle style={{ marginTop: 24 }}>Case closure documents</SectionTitle>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, padding: 12, background: GL, borderRadius: 'var(--radius-md)' }}>
+            {CLOSURE_DOC_TYPES.map((t) => {
+              const doc = closureDocs.find((d) => d.doc_type === t.key);
+              return doc && (
+                <div key={t.key}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: GR, marginBottom: 4 }}>{t.label}</div>
+                  <FileChip name={doc.file_name} status="approved" onOpen={() => openFile(doc)} onDownload={() => downloadDoc(doc)} />
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
 
-        const handleOpenClosure = (doc) => {
-          if (doc?.file_url) window.open(doc.file_url, '_blank', 'noopener,noreferrer');
-        };
-
-        const handleDownloadClosure = async (doc) => {
-          if (!doc?.file_url) return;
-          try {
-            const response = await fetch(doc.file_url);
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = doc.file_name || 'download';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            window.URL.revokeObjectURL(url);
-          } catch { /* ignore */ }
-        };
-
-        return (
-          <>
-            <SectionLabel>Case Closure Documents</SectionLabel>
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(3, 1fr)',
-              gap: 12,
-              padding: '10px 12px',
-              background: '#FEF2F2',
-              border: `1px solid #fecaca`,
-              borderRadius: 6,
-              marginBottom: 16,
-              marginLeft: 16,
-            }}>
-              {orderedTypes.map(type => {
-                const doc = closureMap[type];
-                if (!doc) return null;
-                return (
-                  <div key={`act-cl-${doc.id}`} style={{
-                    display: 'flex', flexDirection: 'column', gap: 6,
-                  }}>
-                    <div style={{
-                      fontSize: 9.5, fontWeight: 800, color: '#991b1b',
-                      textTransform: 'uppercase', letterSpacing: '.05em',
-                    }}>
-                      {CLOSURE_LABELS[type]}
-                    </div>
-                    <FileCard
-                      title={doc.file_name}
-                      status="approved"
-                      onOpen={() => handleOpenClosure(doc)}
-                      onDownload={() => handleDownloadClosure(doc)}
-                      canDelete={false}
-                    />
+      {/* ✅ NEW EXTENSION HISTORY SECTION ✅ */}
+      {extensions.length > 0 && (
+        <>
+          <SectionTitle style={{ marginTop: 24 }}>Date Extensions ({extensions.length})</SectionTitle>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {extensions.map((ext, i) => (
+              <div key={ext.id || i} style={{ padding: 12, background: WH, border: `1px solid ${BRD}`, borderRadius: 'var(--radius-md)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, alignItems: 'start' }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: MUT, fontWeight: 700, marginBottom: 2 }}>Old Due Date</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: INK, textDecoration: 'line-through' }}>{fmtDate(ext.old_date) || '—'}</div>
                   </div>
-                );
-              })}
-            </div>
-          </>
-        );
-      })()}
+                  <div>
+                    <div style={{ fontSize: 11, color: MUT, fontWeight: 700, marginBottom: 2 }}>Extended To</div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: P }}>{fmtDate(ext.extended_due_date)}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: MUT, fontWeight: 700, marginBottom: 2 }}>Reply Files</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {ext.reply_docs?.length ? ext.reply_docs.map(d => (
+                        <FileChip key={d.id} name={d.file_name} icon="📄" onDownload={() => downloadDoc(d)} onOpen={() => openFile(d)} />
+                      )) : <Muted>—</Muted>}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: MUT, fontWeight: 700, marginBottom: 2 }}>Acknowledgment</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {ext.ack_docs?.length ? ext.ack_docs.map(d => (
+                        <FileChip key={d.id} name={d.file_name} icon="📥" onDownload={() => downloadDoc(d)} onOpen={() => openFile(d)} />
+                      )) : <Muted>—</Muted>}
+                    </div>
+                  </div>
+                </div>
+                {ext.notes && (
+                  <div style={{ marginTop: 8, fontSize: 12, color: 'var(--color-slate-600)', background: BG, padding: '6px 10px', borderRadius: 6, fontStyle: 'italic' }}>
+                    {ext.notes}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
 
-      {/* NOTES */}
-      <SectionLabel>Notes</SectionLabel>
-      <div style={{ padding: '10px 12px', background: C.bgSoft, border: `1px solid ${C.borderLight}`, borderLeft: `3px solid ${C.navy}`, borderRadius: 6, fontSize: 12, color: C.ink, whiteSpace: 'pre-wrap', marginBottom: 16 }}>
+      {/* ── NOTES ── */}
+      <SectionTitle style={{ marginTop: 24 }}>Notes</SectionTitle>
+      <div style={{ padding: '10px 12px', background: 'var(--color-slate-50)', borderLeft: `3px solid ${P}`, borderRadius: 'var(--radius-sm)', fontSize: 12.5, color: INK, whiteSpace: 'pre-wrap' }}>
         {notice.notes || <span style={{ color: MUT, fontStyle: 'italic' }}>No notes added.</span>}
       </div>
 
-      {/* SUBMIT FOR REVIEW */}
-      {isAssignedMaker && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12, paddingTop: 12, borderTop: `1px solid ${C.borderLight}`, marginTop: 'auto' }}>
-            {hasDrafts && (
-              <span style={{ fontSize: 11, color: C.amber, fontWeight: 700 }}>
-                ⚠ You have draft(s) ready to submit for review
-              </span>
-            )}
-          <button onClick={onSubmitDocs} disabled={!hasDrafts || submittingDocs} style={{
-            padding: '8px 18px', borderRadius: 6, border: 'none',
-            background: hasDrafts ? C.navy : '#CBD5E1', color: '#fff',
-            fontSize: 12, fontWeight: 700, cursor: hasDrafts ? 'pointer' : 'not-allowed',
-          }}>
-            {submittingDocs ? '⏳ Submitting...' : '📤 Submit for Review'}
+      {isMaker && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12, paddingTop: 12, marginTop: 'auto', borderTop: `1px solid ${BRD}` }}>
+          {hasDrafts && <span style={{ fontSize: 12, color: AMB, fontWeight: 600 }}>You have drafts ready to submit</span>}
+          <button className="btn btn-primary" onClick={onSubmitDocs} disabled={!hasDrafts || submitting}>
+            {submitting ? 'Submitting…' : '📤 Submit for review'}
           </button>
         </div>
       )}
@@ -646,371 +324,316 @@ function NoticeDetailView({
   );
 }
 
+
+
+
+
 // ══════════════════════════════════════════════════════════════════
-// MAIN COMPONENT EXPORT
+// MAIN
 // ══════════════════════════════════════════════════════════════════
 export default function ActivityTimelineV2({ activityCase, subServiceName, canEdit, api: caseApi, onUpdated, caseData }) {
   const { user } = useAuth();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [toast, setToast] = useState(null);
+  const [confirm, confirmEl] = useConfirm();
+
   const [editingSummary, setEditingSummary] = useState(false);
   const [descText, setDescText] = useState(activityCase.job_description || '');
+  const [savingSummary, setSavingSummary] = useState(false);
   const [notices, setNotices] = useState([]);
   const [loadingNotices, setLoadingNotices] = useState(true);
-  
-  const noticeStorageKey = `activity_notice_${activityCase?.id || 'none'}`;
-  const [selectedNoticeId, setSelectedNoticeIdState] = useState(() => {
+  const [details, setDetails] = useState(null);
+  const [allReplies, setAllReplies] = useState([]);
+  const [pendingNoticeEdits, setPendingNoticeEdits] = useState([]);
+  const [uploading, setUploading] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const [showAddNotice, setShowAddNotice] = useState(false);
+  const [editNotice, setEditNotice] = useState(null);
+  const [showCloseCase, setShowCloseCase] = useState(false);
+  const [extensionNotice, setExtensionNotice] = useState(null);
+  const [showUploadReply, setShowUploadReply] = useState(false);
+  const [replyNotice, setReplyNotice] = useState(null);
+
+  // Selected notice survives refresh: ?notice= wins, then sessionStorage.
+  const storageKey = `activity_notice_${activityCase?.id || 'none'}`;
+  const [selectedId, setSelectedIdState] = useState(() => {
     try {
-      const urlNoticeId = new URLSearchParams(window.location.search).get('notice');
-      if (urlNoticeId) return parseInt(urlNoticeId, 10);
-      const stored = sessionStorage.getItem(noticeStorageKey);
+      const fromUrl = new URLSearchParams(window.location.search).get('notice');
+      const stored = fromUrl || sessionStorage.getItem(storageKey);
       return stored ? parseInt(stored, 10) : null;
     } catch { return null; }
   });
+  const setSelectedId = useCallback((id) => {
+    setSelectedIdState(id);
+    try { id ? sessionStorage.setItem(storageKey, String(id)) : sessionStorage.removeItem(storageKey); } catch { /* ignore */ }
+  }, [storageKey]);
 
-  const setSelectedNoticeId = useCallback((id) => {
-    setSelectedNoticeIdState(id);
-    try { if (id) sessionStorage.setItem(noticeStorageKey, String(id)); else sessionStorage.removeItem(noticeStorageKey); } catch {}
-  }, [noticeStorageKey]);
-
-  const [selectedNoticeDetails, setSelectedNoticeDetails] = useState(null);
-  const [selectedReplies, setSelectedReplies] = useState([]);
-  const [allReplies, setAllReplies] = useState([]);
-  const [pendingNoticeEdits, setPendingNoticeEdits] = useState([]);
-  const [showAddNoticeModal, setShowAddNoticeModal] = useState(false);
-  const [showCloseCaseModal, setShowCloseCaseModal] = useState(false);
-  const [showUploadReplyBundleModal, setShowUploadReplyBundleModal] = useState(false);
-  const [editNotice, setEditNotice] = useState(null);
-  const [replyModalNotice, setReplyModalNotice] = useState(null);
-  const [uploadingCourtNotice, setUploadingCourtNotice] = useState(false);
-  const [uploadingAck, setUploadingAck] = useState(false);
-  const [uploadingSupportId, setUploadingSupportId] = useState(null);
-  const [deletingId, setDeletingId] = useState(null);
-  const [submittingDocs, setSubmittingDocs] = useState(false);
-
-  const isAssignedMaker = (caseData?.makers || []).some((m) => m.id === user?.id);
-  const isAssignedChecker = (caseData?.checkers || []).some((c) => c.id === user?.id);
+  const isMaker = isInList(caseData?.makers, user);
+  const isChecker = isInList(caseData?.checkers, user);
   const isFounder = user?.role === 'Founder';
-  const isCeoRole = isFounder; 
-  // const isCaseClosed = caseData?.status === 'closed';
-  // const showCloseCaseButton = !!user;
-  // const canAddNotice = isAssignedMaker && !isCaseClosed;
-
-  const isCaseClosed = 
-    caseData?.status === 'closed' || 
-    caseData?.computed_status === 'closed' || 
-    activityCase?.status === 'closed' || 
-    activityCase?.computed_status === 'closed' || 
-    activityCase?.closure_review_status === 'approved';
-  const showCloseCaseButton = !!user;
-  const canAddNotice = isAssignedMaker && !isCaseClosed; 
-
-
-  const hasSummary = !!activityCase.job_description;
-
-  const showToast = (message, type = 'success') => { setToast({ message, type }); };
+  const isCaseClosed = [caseData?.status, caseData?.computed_status, activityCase?.status, activityCase?.computed_status].includes('closed')
+    || activityCase?.closure_review_status === 'approved';
 
   useEffect(() => { setDescText(activityCase.job_description || ''); }, [activityCase.job_description, activityCase.id]);
 
   const fetchNotices = useCallback(() => {
     if (!activityCase?.id) return;
     setLoadingNotices(true);
-    api.get('/legal-services/notices/', { params: { court_case: activityCase.id } })
+    legalApi.notices.list({ court_case: activityCase.id })
       .then((res) => {
-        const data = Array.isArray(res.data) ? res.data : (res.data.results || []);
+        // ✅ SORT DESCENDING (Newest first)
+        const data = toList(res).sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
         setNotices(data);
-        if (data.length > 0) {
-          const stillExists = selectedNoticeId && data.some(n => n.id === selectedNoticeId);
-          if (!stillExists) setSelectedNoticeId(data[0].id);
-        } else setSelectedNoticeId(null);
-      }).catch(() => setNotices([])).finally(() => setLoadingNotices(false));
-  }, [activityCase?.id]);
-
-  useEffect(() => { fetchNotices(); }, [fetchNotices]);
+        setSelectedIdState((cur) => {
+          const next = data.some((n) => n.id === cur) ? cur : data[0]?.id ?? null;
+          try { next ? sessionStorage.setItem(storageKey, String(next)) : sessionStorage.removeItem(storageKey); } catch { /* ignore */ }
+          return next;
+        });
+      })
+      .catch(() => setNotices([]))
+      .finally(() => setLoadingNotices(false));
+  }, [activityCase?.id, storageKey]);
 
   const fetchPendingNoticeEdits = useCallback(async () => {
     if (!activityCase?.id) return;
     try {
-      const res = await api.get('/legal-services/reviews/', { params: { court_case: activityCase.id, status: 'pending' } });
-      const data = Array.isArray(res.data) ? res.data : (res.data.results || []);
-      setPendingNoticeEdits(data.filter(r => r.action_type === 'notice_edit'));
+      const res = await legalApi.reviews.list({ court_case: activityCase.id, status: 'pending' });
+      setPendingNoticeEdits(toList(res).filter((r) => r.action_type === 'notice_edit'));
     } catch { setPendingNoticeEdits([]); }
   }, [activityCase?.id]);
 
-  useEffect(() => { fetchPendingNoticeEdits(); }, [fetchPendingNoticeEdits]);
-
-  const fetchSelectedNoticeDetails = useCallback(async () => {
-    if (!selectedNoticeId) { setSelectedNoticeDetails(null); setSelectedReplies([]); setAllReplies([]); return; }
+  const fetchDetails = useCallback(async () => {
+    if (!selectedId) { setDetails(null); setAllReplies([]); return; }
     try {
-      const [noticeRes, repliesRes] = await Promise.all([
-        api.get(`/legal-services/notices/${selectedNoticeId}/`),
-        api.get('/legal-services/notice-replies/', { params: { notice: selectedNoticeId } }),
-      ]);
-      setSelectedNoticeDetails(noticeRes.data);
-      const replyList = Array.isArray(repliesRes.data) ? repliesRes.data : (repliesRes.data.results || []);
-      setAllReplies(replyList);
-      setSelectedReplies(replyList.filter(r => r.status === 'approved'));
-    } catch { setSelectedNoticeDetails(null); setSelectedReplies([]); setAllReplies([]); }
-  }, [selectedNoticeId]);
+      const [nRes, rRes] = await Promise.all([legalApi.notices.get(selectedId), legalApi.replies.list({ notice: selectedId })]);
+      setDetails(nRes.data);
+      setAllReplies(toList(rRes));
+    } catch { setDetails(null); setAllReplies([]); }
+  }, [selectedId]);
 
-  useEffect(() => { fetchSelectedNoticeDetails(); }, [fetchSelectedNoticeDetails]);
+  useEffect(() => { fetchNotices(); }, [fetchNotices]);
+  useEffect(() => { fetchPendingNoticeEdits(); }, [fetchPendingNoticeEdits]);
+  useEffect(() => { fetchDetails(); }, [fetchDetails]);
 
-  const statusCounts = {
-    wip: notices.filter(n => n.status === 'wip').length,
-    under_review: notices.filter(n => n.status === 'under_review').length,
-    open: notices.filter(n => n.status === 'open').length,
-    attention: notices.filter(n => {
-      if (n.status !== 'wip' && n.status !== 'under_review') return false;
-      const due = n.extended_due_date || n.due_date; if (!due) return false;
-      const today = new Date(); today.setHours(0, 0, 0, 0); const d = new Date(due); d.setHours(0, 0, 0, 0);
-      return Math.ceil((d - today) / (1000 * 60 * 60 * 24)) <= 5;
-    }).length,
-  };
+  const refreshNotice = async () => { await fetchDetails(); fetchNotices(); };
 
-  const { pendingReviewLabels, hasPendingNoticeEdit } = React.useMemo(() => {
-    if (!selectedNoticeDetails) return { pendingReviewLabels: [], hasPendingNoticeEdit: false };
-    const pendingTypes = [];
-    
-    // ✅ Check if HTML Reply (Write) is pending
-    const hasHtmlPending = allReplies.some(r => ['pending', 'escalated'].includes(r.status));
-    
-    // ✅ Check if Uploaded Reply (Upload) is pending
-    const hasDocReplyPending = (selectedNoticeDetails.documents || []).some(d => 
-      ['pending', 'reply'].includes(d.doc_type) && ['pending', 'escalated'].includes(d.review_status)
-    );
+  const counts = useMemo(() => ({
+    wip: notices.filter((n) => n.status === 'wip').length,
+    under_review: notices.filter((n) => n.status === 'under_review').length,
+    open: notices.filter((n) => n.status === 'open').length,
+  }), [notices]);
 
-    // If EITHER is pending, show the "Reply Pending" chip
-    if (hasHtmlPending || hasDocReplyPending) {
-      pendingTypes.push('Reply');
-    }
+  const { pendingLabel, hasPendingNoticeEdit } = useMemo(() => {
+    if (!details) return { pendingLabel: '', hasPendingNoticeEdit: false };
+    const inReview = (s) => ['pending', 'escalated'].includes(s);
+    const types = [];
+    if (allReplies.some((r) => inReview(r.status)) || (details.documents || []).some((d) => ['pending', 'reply'].includes(d.doc_type) && inReview(d.review_status))) types.push('Reply');
+    if ((details.documents || []).some((d) => d.doc_type === 'acknowledgment' && inReview(d.review_status))) types.push('Acknowledgment');
+    const editPending = pendingNoticeEdits.some((r) => r.payload?.notice_id === details.id && r.status === 'pending');
+    if (editPending) types.push('Info Update');
+    const label = types.length ? `${types.length > 1 ? `${types.slice(0, -1).join(', ')} and ${types[types.length - 1]}` : types[0]} Pending` : '';
+    return { pendingLabel: label, hasPendingNoticeEdit: editPending };
+  }, [details, allReplies, pendingNoticeEdits]);
 
-    if ((selectedNoticeDetails.documents || []).some(d => d.doc_type === 'acknowledgment' && ['pending', 'escalated'].includes(d.review_status))) {
-      pendingTypes.push('Acknowledgment');
-    }
-    
-    const hasEditPending = pendingNoticeEdits.some(r => r.payload?.notice_id === selectedNoticeDetails.id && r.status === 'pending');
-    if (hasEditPending) pendingTypes.push('Info Update');
-    
-    let label = '';
-    if (pendingTypes.length === 1) label = `${pendingTypes[0]} Pending`;
-    else if (pendingTypes.length === 2) label = `${pendingTypes[0]} and ${pendingTypes[1]} Pending`;
-    else if (pendingTypes.length > 2) label = `${pendingTypes.slice(0, -1).join(', ')} and ${pendingTypes[pendingTypes.length - 1]} Pending`;
-    
-    return { pendingReviewLabels: label ? [label] : [], hasPendingNoticeEdit: hasEditPending };
-  }, [selectedNoticeDetails, allReplies, pendingNoticeEdits]);
-
-  
+  // ── Actions ──
   const saveSummary = async () => {
-    setBusy(true); setError('');
+    setSavingSummary(true);
     try {
       const res = await caseApi.setDescription(descText.trim());
-      showToast(res?.review_submitted ? 'Summary submitted for checker review' : 'Summary saved', 'success');
+      message.success(res?.review_submitted ? 'Summary submitted for checker review' : 'Summary saved');
       if (res) onUpdated(res.data || res);
       setEditingSummary(false);
     } catch (e) {
-      const msg = e?.response?.data?.error || 'Failed to save summary.';
-      setError(msg); showToast(msg, 'error');
-    } finally { setBusy(false); }
-  };
-
-  const handleUploadCourtNotice = async (file) => {
-    setUploadingCourtNotice(true);
-    try {
-      const fd = new FormData(); fd.append('notice', selectedNoticeId); fd.append('file', file); fd.append('doc_type', 'court_notice');
-      await api.post('/legal-services/notice-documents/', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      showToast('Notice uploaded', 'success'); await fetchSelectedNoticeDetails(); fetchNotices();
-    } catch (e) { showToast(e?.response?.data?.error || 'Failed to upload', 'error'); } finally { setUploadingCourtNotice(false); }
-  };
-
-  const handleUploadSupportDoc = async (file, mainReplyId) => {
-    setUploadingSupportId(mainReplyId);
-    try {
-      const fd = new FormData();
-      fd.append('notice', selectedNoticeId);
-      fd.append('file', file);
-      fd.append('doc_type', 'pending_support');
-      fd.append('reply_version', mainReplyId);
-
-      await api.post('/legal-services/notice-documents/', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      showToast('Supporting document added', 'success');
-      await fetchSelectedNoticeDetails();
-      fetchNotices();
-    } catch (e) {
-      showToast(e?.response?.data?.error || 'Failed to upload', 'error');
+      message.error(errMsg(e, 'Failed to save summary.'));
     } finally {
-      setUploadingSupportId(null);
+      setSavingSummary(false);
     }
   };
 
-
-  const handleUploadAck = async (file) => {
-    setUploadingAck(true);
+  const upload = async (file, docType, extra = {}, busyKey = docType) => {
+    setUploading(busyKey);
     try {
-      const fd = new FormData(); fd.append('notice', selectedNoticeId); fd.append('file', file); fd.append('doc_type', 'acknowledgment');
-      await api.post('/legal-services/notice-documents/', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      showToast('Acknowledgment saved as draft', 'success'); await fetchSelectedNoticeDetails(); fetchNotices();
-    } catch (e) { showToast(e?.response?.data?.error || 'Failed to upload', 'error'); } finally { setUploadingAck(false); }
+      await legalApi.noticeDocs.upload({ notice: selectedId, file, doc_type: docType, ...extra });
+      message.success(docType === 'acknowledgment' ? 'Acknowledgment saved as draft' : 'File uploaded');
+      await refreshNotice();
+    } catch (e) {
+      message.error(errMsg(e, 'Failed to upload'));
+    } finally {
+      setUploading(null);
+    }
   };
 
-  const handleDeleteDoc = async (docId) => {
-    if (!window.confirm('Delete this file?')) return;
+  const deleteDoc = async (docId) => {
+    if (!(await confirm({ title: 'Delete this file?', message: 'This cannot be undone.', confirmLabel: 'Delete', danger: true }))) return;
     setDeletingId(docId);
     try {
-      await api.delete(`/legal-services/notice-documents/${docId}/`);
-      showToast('File deleted', 'success'); await fetchSelectedNoticeDetails(); fetchNotices();
-    } catch (e) { showToast(e?.response?.data?.error || 'Failed to delete', 'error'); } finally { setDeletingId(null); }
+      await legalApi.noticeDocs.remove(docId);
+      message.success('File deleted');
+      await refreshNotice();
+    } catch (e) {
+      message.error(errMsg(e, 'Failed to delete'));
+    } finally {
+      setDeletingId(null);
+    }
   };
 
-  const handleOpenDoc = (doc) => { if (doc?.file_url) window.open(doc.file_url, '_blank', 'noopener,noreferrer'); };
-  const handleDownloadDoc = async (doc) => {
-    if (!doc?.file_url) return;
-    try {
-      const response = await fetch(doc.file_url); const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob); const link = document.createElement('a');
-      link.href = url; link.download = doc.file_name || 'download';
-      document.body.appendChild(link); link.click(); document.body.removeChild(link); window.URL.revokeObjectURL(url);
-    } catch { showToast('Download failed', 'error'); }
-  };
-
-  const handleOpenReply = (reply) => {
-    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${reply.title || 'Reply'}</title><style>@page{size:A4;margin:1in;}@media print{body{margin:0;}.no-print{display:none!important;}}*{box-sizing:border-box;}body{font-family:'Times New Roman',Times,serif;font-size:12pt;line-height:1.5;color:#1a1a2e;max-width:800px;margin:0 auto;padding:40px;background:#fff;-webkit-user-select:text;user-select:text;cursor:text;}table{border-collapse:collapse;margin:10px 0;width:100%;}td,th{border:1px solid #999;padding:6px 10px;}p,div{margin:0 0 0.5em;}ul,ol{margin:0 0 0.5em;padding-left:30px;}.toolbar{position:fixed;top:0;left:0;right:0;background:#1E3A6B;color:#fff;padding:8px 20px;display:flex;align-items:center;gap:12px;font-family:'Segoe UI',Arial,sans-serif;font-size:13px;font-weight:600;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,0.2);}.toolbar button{padding:6px 16px;border:1px solid rgba(255,255,255,0.3);border-radius:5px;background:rgba(255,255,255,0.1);color:#fff;cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;}.toolbar button:hover{background:rgba(255,255,255,0.2);}.content{margin-top:50px;}</style></head><body><div class="toolbar no-print"><span>📄 ${(reply.title || 'Reply').replace(/</g, '&lt;')}</span><div style="flex:1"></div><button onclick="window.print()">🖨 Print / Save as PDF</button></div><div class="content">${reply.content_html || ''}</div></body></html>`;
-    window.open(URL.createObjectURL(new Blob([html], { type: 'text/html' })), '_blank');
-  };
-
-  const handleDownloadReply = async (reply) => {
-    const content = reply.content_html || '';
-    if (!content.trim()) return showToast('No content to download', 'error');
-    try {
-      const { default: html2pdf } = await import('html2pdf.js');
-      const wrapper = document.createElement('div');
-      wrapper.style.fontFamily = "'Times New Roman', Times, serif"; wrapper.style.fontSize = '12pt'; wrapper.style.lineHeight = '1.5'; wrapper.style.padding = '20px'; wrapper.style.background = '#fff'; wrapper.style.width = '700px'; wrapper.innerHTML = content;
-      wrapper.querySelectorAll('table').forEach(t => { t.style.borderCollapse = 'collapse'; t.style.width = '100%'; t.style.marginBottom = '10px'; });
-      wrapper.querySelectorAll('td, th').forEach(cell => { cell.style.border = '1px solid #333'; cell.style.padding = '4px 8px'; });
-      document.body.appendChild(wrapper);
-      await html2pdf().set({ margin: [0.8, 0.8, 0.8, 0.8], filename: `${(reply.title || 'reply').replace(/[^a-z0-9]/gi, '_')}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true, scrollY: 0 }, jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' } }).from(wrapper).save();
-      document.body.removeChild(wrapper); showToast('PDF downloaded', 'success');
-    } catch { showToast('PDF failed', 'error'); }
-  };
-
-  const handleDeleteReply = async (reply) => {
-    if (!window.confirm(`Delete "${reply.title || 'Untitled'}"?`)) return;
+  const deleteReply = async (reply) => {
+    if (!(await confirm({ title: `Delete "${reply.title || 'Untitled'}"?`, message: 'This cannot be undone.', confirmLabel: 'Delete', danger: true }))) return;
     setDeletingId(`reply-${reply.id}`);
-    try { await api.delete(`/legal-services/notice-replies/${reply.id}/`); showToast('Reply deleted', 'success'); await fetchSelectedNoticeDetails(); fetchNotices(); } catch { showToast('Cannot delete', 'error'); } finally { setDeletingId(null); }
+    try {
+      await legalApi.replies.remove(reply.id);
+      message.success('Reply deleted');
+      await refreshNotice();
+    } catch {
+      message.error('Cannot delete');
+    } finally {
+      setDeletingId(null);
+    }
   };
 
-  const handleSubmitDocs = async () => {
-    if (!selectedNoticeId) return;
-    setSubmittingDocs(true);
+  const submitDocs = async () => {
+    if (!selectedId) return;
+    setSubmitting(true);
     try {
-      const draftHtmls = allReplies.filter(r => r.status === 'draft' || r.status === 'rejected');
-      for (const html of draftHtmls) { try { await api.post(`/legal-services/notice-replies/${html.id}/send-for-review/`); } catch {} }
-      await api.post(`/legal-services/notices/${selectedNoticeId}/submit-docs/`);
-      showToast('All drafts sent for checker review', 'success');
-      await fetchSelectedNoticeDetails(); fetchNotices(); 
-      if (onUpdated) onUpdated(); 
-    } catch (e) { showToast(e?.response?.data?.error || 'Failed to submit', 'error'); } finally { setSubmittingDocs(false); }
+      for (const r of allReplies.filter((x) => x.status === 'draft' || x.status === 'rejected')) {
+        try { await legalApi.replies.sendForReview(r.id); } catch { /* keep going */ }
+      }
+      await legalApi.notices.submitDocs(selectedId);
+      message.success('All drafts sent for checker review');
+      await refreshNotice();
+      onUpdated?.();
+    } catch (e) {
+      message.error(errMsg(e, 'Failed to submit'));
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
-    <div style={{ fontFamily: "'Inter','Roboto',sans-serif" }}>
-      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-      <div style={{ borderRadius: 10, background: '#fff', border: `1px solid ${C.border}`, padding: '10px 14px', marginBottom: 10, boxShadow: '0 1px 3px rgba(15,23,42,0.04)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: hasSummary || editingSummary ? 6 : 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7, flex: 1, minWidth: 200 }}>
-            <h2 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: C.ink }}>{subServiceName || activityCase.case_title || 'Untitled Case'}</h2>
-            {canEdit && !editingSummary && <button onClick={() => { setDescText(activityCase.job_description || ''); setEditingSummary(true); }} style={{ width: 22, height: 22, border: `1px solid ${C.border}`, borderRadius: 4, background: '#fff', color: C.muted, cursor: 'pointer', fontSize: 11 }}>✎</button>}
+    <div>
+      {/* Case header + summary */}
+      <div className="card" style={{ padding: '12px 16px', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 200 }}>
+            <h2 style={{ margin: 0, fontSize: 15, fontWeight: 800, color: INK }}>{subServiceName || activityCase.case_title || 'Untitled Case'}</h2>
+            {canEdit && !editingSummary && (
+              <button className="icon-btn" title="Edit summary" style={{ width: 24, height: 24, fontSize: 12 }}
+                onClick={() => { setDescText(activityCase.job_description || ''); setEditingSummary(true); }}>✎</button>
+            )}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: C.slate }}>{notices.length} notice{notices.length !== 1 ? 's' : ''}</span>
-            {notices.length > 0 && (<><span style={{ width: 1, height: 14, background: C.border }} /> <StatusCountChip status="wip" count={statusCounts.wip} /> <StatusCountChip status="under_review" count={statusCounts.under_review} /> <StatusCountChip status="open" count={statusCounts.open} /></>)}
-            {showCloseCaseButton && <button onClick={() => setShowCloseCaseModal(true)} style={{ padding: '4px 11px', border: `1px solid ${isCaseClosed ? C.green : C.amber}`, borderRadius: 5, background: isCaseClosed ? C.greenBg : '#FBF2DE', color: isCaseClosed ? C.green : C.amber, fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>{isCaseClosed ? '✅ Case Closed' : '🔒 Close Case'}</button>}
-            {canAddNotice && <button onClick={() => setShowAddNoticeModal(true)} style={{ padding: '4px 11px', border: `1px solid ${C.navy}`, borderRadius: 5, background: '#fff', color: C.navy, fontWeight: 700, fontSize: 11, cursor: 'pointer' }}>+ Add Notice</button>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-slate-600)' }}>{notices.length} notice{notices.length !== 1 ? 's' : ''}</span>
+            {notices.length > 0 && ['wip', 'under_review', 'open'].map((s) => (
+              <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: counts[s] ? INK : MUT }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: counts[s] ? CASE_STATUS[s].color : BRD }} />
+                {CASE_STATUS[s].label} <b>{counts[s]}</b>
+              </span>
+            ))}
+            <button className="btn btn-secondary" style={{ padding: '4px 12px', color: isCaseClosed ? GR : AMB }} onClick={() => setShowCloseCase(true)}>
+              {isCaseClosed ? '✅ Case closed' : '🔒 Close case'}
+            </button>
+            {isMaker && !isCaseClosed && <button className="btn btn-primary" style={{ padding: '4px 12px' }} onClick={() => setShowAddNotice(true)}>+ Add notice</button>}
           </div>
         </div>
-        <div>
-          {editingSummary && canEdit ? (
-            <><textarea autoFocus rows={2} value={descText} onChange={(e) => setDescText(e.target.value)} placeholder="Add summary..." style={{ width: '100%', padding: '7px 10px', borderRadius: 5, border: `1px solid ${C.border}`, background: '#fff', color: C.ink, fontSize: 12, resize: 'vertical', outline: 'none' }} />
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 5, marginTop: 5 }}>
-                <button onClick={() => { setDescText(activityCase.job_description || ''); setEditingSummary(false); }} style={{ padding: '5px 12px', border: `1px solid ${C.border}`, borderRadius: 5, background: '#fff', color: C.slate, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-                <button onClick={saveSummary} style={{ padding: '5px 14px', border: 'none', borderRadius: 5, background: C.navy, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Save</button>
-              </div></>
-          ) : hasSummary ? <div style={{ fontSize: 12, color: C.slate, whiteSpace: 'pre-wrap' }}>{activityCase.job_description}</div> : null}
-        </div>
+
+        {editingSummary && canEdit ? (
+          <div style={{ marginTop: 8 }}>
+            <Input.TextArea autoFocus rows={2} value={descText} onChange={(e) => setDescText(e.target.value)} placeholder="Add a case summary…" />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 6 }}>
+              <button className="btn btn-secondary" onClick={() => setEditingSummary(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveSummary} disabled={savingSummary}>{savingSummary ? 'Saving…' : 'Save'}</button>
+            </div>
+          </div>
+        ) : activityCase.job_description ? (
+          <div style={{ marginTop: 6, fontSize: 12.5, color: 'var(--color-slate-600)', whiteSpace: 'pre-wrap' }}>{activityCase.job_description}</div>
+        ) : null}
       </div>
-      {error && <div style={{ marginBottom: 10, padding: '9px 12px', background: C.redBg, color: C.red, borderRadius: 8, fontSize: 12, fontWeight: 600, border: `1px solid ${C.redBorder}` }}>{error}</div>}
+
+      {/* Notice list + selected notice */}
       <div style={{ display: 'flex', gap: 12, minHeight: 500 }}>
-        <div style={{ width: 260, flexShrink: 0, background: '#fff', border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '8px 12px', borderBottom: `1px solid ${C.borderLight}`, background: C.bgSoft }}><span style={{ fontSize: 10.5, fontWeight: 800, color: C.slate, textTransform: 'uppercase' }}>Notices</span></div>
+        <div className="card" style={{ width: 260, flexShrink: 0, padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: '8px 12px', borderBottom: `1px solid ${BRD}`, background: 'var(--color-slate-100)', fontSize: 11, fontWeight: 700, color: 'var(--color-slate-600)', textTransform: 'uppercase' }}>
+            Notices
+          </div>
           <div style={{ flex: 1, overflowY: 'auto' }}>
-            {loadingNotices ? <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: MUT }}>Loading...</div> : notices.length === 0 ? <div style={{ padding: '24px 14px', textAlign: 'center' }}><div style={{ fontSize: 12, fontWeight: 700, color: C.ink }}>No notices yet</div></div> : notices.map(n => <SidebarNoticeRow key={n.id} notice={n} isSelected={selectedNoticeId === n.id} onClick={() => setSelectedNoticeId(n.id)} />)}
+            {loadingNotices ? <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: MUT }}>Loading…</div>
+              : notices.length === 0 ? <EmptyState compact icon="🔔" text="No notices yet" />
+              : notices.map((n) => <SidebarNoticeRow key={n.id} notice={n} selected={selectedId === n.id} onClick={() => setSelectedId(n.id)} />)}
           </div>
         </div>
-        <div style={{ flex: 1, minWidth: 0, background: '#fff', border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'auto' }}>
+        <div className="card" style={{ flex: 1, minWidth: 0, padding: 0, overflow: 'auto' }}>
           <NoticeDetailView
-            notice={selectedNoticeDetails}
-            replies={selectedReplies}
+            notice={details}
             allReplies={allReplies}
-            isAssignedMaker={isAssignedMaker}
-            isFounder={isFounder}
+            isMaker={isMaker}
             isCaseClosed={isCaseClosed}
             activityCase={activityCase}
-            onReply={() => setReplyModalNotice(selectedNoticeDetails)}
-            onUploadReplyClick={() => setShowUploadReplyBundleModal(true)}
-            onEdit={() => setEditNotice(selectedNoticeDetails)}
-            uploadingCourtNotice={uploadingCourtNotice}
-            uploadingAck={uploadingAck}
-            uploadingSupportId={uploadingSupportId}          // ✅
-            deletingId={deletingId}
-            onUploadCourtNotice={handleUploadCourtNotice}
-            onUploadAck={handleUploadAck}
-            onUploadSupportDoc={handleUploadSupportDoc}      // ✅
-            onDeleteDoc={handleDeleteDoc}
-            onOpenDoc={handleOpenDoc}
-            onDownloadDoc={handleDownloadDoc}
-            onOpenReply={handleOpenReply}
-            onDownloadReply={handleDownloadReply}
-            onDeleteReply={handleDeleteReply}
-            pendingReviewLabels={pendingReviewLabels}
+            pendingLabel={pendingLabel}
             hasPendingNoticeEdit={hasPendingNoticeEdit}
-            onSubmitDocs={handleSubmitDocs}
-            submittingDocs={submittingDocs}
+            uploading={uploading}
+            deletingId={deletingId}
+            submitting={submitting}
+            onEdit={() => setEditNotice(details)}
+            onReply={() => setReplyNotice(details)}
+            onUploadReplyClick={() => setShowUploadReply(true)}
+            onUpload={(f, type) => upload(f, type)}
+            onUploadSupport={(f, mainId) => upload(f, 'pending_support', { reply_version: mainId }, `support-${mainId}`)}
+            onDeleteDoc={deleteDoc}
+            onDeleteReply={deleteReply}
+            onSubmitDocs={submitDocs}
+            onAddExtension={() => setExtensionNotice(details)}
           />
         </div>
       </div>
-      {showAddNoticeModal && <AddNoticeModal courtCaseId={activityCase.id} onClose={() => setShowAddNoticeModal(false)} onCreated={() => { setShowAddNoticeModal(false); fetchNotices(); if (onUpdated) onUpdated(); }} />}
-      {editNotice && <AddNoticeModal courtCaseId={activityCase.id} editNotice={editNotice} submitForReview={isAssignedMaker && !isFounder} onClose={() => setEditNotice(null)} onCreated={() => { setEditNotice(null); fetchNotices(); fetchSelectedNoticeDetails(); fetchPendingNoticeEdits(); }} />}
-      {/* {replyModalNotice && <ReplyEditorModal noticeId={replyModalNotice.id} notice={replyModalNotice} replyId={null} mode="edit" currentUserId={user?.id} isAssignedMaker={isAssignedMaker} isAssignedChecker={isAssignedChecker} isCeoRole={isCeoRole} onClose={() => setReplyModalNotice(null)} onSaved={(data, action) => { fetchNotices(); fetchSelectedNoticeDetails(); if (onUpdated) onUpdated(); if (['approve', 'reject'].includes(action)) setReplyModalNotice(null); }} />} */}
-      {replyModalNotice && <ReplyEditorModal 
-        noticeId={replyModalNotice.id} 
-        notice={replyModalNotice} 
-        replyId={null} 
-        mode="edit" 
-        currentUserId={user?.id} 
-        isAssignedMaker={isAssignedMaker} 
-        isAssignedChecker={isAssignedChecker} 
-        isCeoRole={isCeoRole} 
-        onClose={() => setReplyModalNotice(null)} 
-        onSaved={(data, action) => { 
-          // ✅ ONLY refresh parent data; DO NOT close modal on save/draft/send
-          fetchNotices(); 
-          fetchSelectedNoticeDetails(); 
-          
-          // ✅ Only trigger heavy parent refresh on final actions
-          if (['approve', 'reject', 'reopen'].includes(action)) {
-            if (onUpdated) onUpdated();
-          }
-          
-          // ✅ Only auto-close on approve/reject (final actions handled by checker)
-          if (['approve', 'reject'].includes(action)) {
-            setReplyModalNotice(null); 
-          }
-        }} 
-      />}
-      {showCloseCaseModal && <CloseCaseModal courtCaseId={activityCase.id} canEdit={isAssignedMaker && !isCaseClosed} onClose={() => setShowCloseCaseModal(false)} onUpdated={() => { onUpdated && onUpdated(); fetchNotices(); }} />}
-      {showUploadReplyBundleModal && selectedNoticeDetails && <UploadReplyBundleModal noticeId={selectedNoticeDetails.id} onClose={() => setShowUploadReplyBundleModal(false)} onSuccess={() => { setShowUploadReplyBundleModal(false); fetchSelectedNoticeDetails(); fetchNotices(); }} />}
+
+      {showAddNotice && (
+        <AddNoticeModal courtCaseId={activityCase.id} onClose={() => setShowAddNotice(false)}
+          onCreated={() => { setShowAddNotice(false); fetchNotices(); onUpdated?.(); }} />
+      )}
+      {editNotice && (
+        <AddNoticeModal courtCaseId={activityCase.id} editNotice={editNotice} submitForReview={isMaker && !isFounder}
+          onClose={() => setEditNotice(null)}
+          onCreated={() => { setEditNotice(null); fetchNotices(); fetchDetails(); fetchPendingNoticeEdits(); }} />
+      )}
+      {extensionNotice && (
+        <AddExtensionModal
+          notice={extensionNotice}
+          onClose={() => setExtensionNotice(null)}
+          onSuccess={() => {
+            setExtensionNotice(null);
+            refreshNotice();
+            onUpdated?.();
+          }}
+        />
+      )}
+      {showCloseCase && (
+        <CloseCaseModal courtCaseId={activityCase.id} canEdit={isMaker && !isCaseClosed}
+          onClose={() => setShowCloseCase(false)} onUpdated={() => { onUpdated?.(); fetchNotices(); }} />
+      )}
+      {showUploadReply && details && (
+        <UploadReplyBundleModal noticeId={details.id} onClose={() => setShowUploadReply(false)}
+          onSuccess={() => { setShowUploadReply(false); refreshNotice(); }} />
+      )}
+      {replyNotice && (
+        <ReplyEditorModal
+          noticeId={replyNotice.id}
+          notice={replyNotice}
+          replyId={null}
+          mode="edit"
+          currentUserId={user?.id}
+          isAssignedMaker={isMaker}
+          isAssignedChecker={isChecker}
+          isCeoRole={isFounder}
+          onClose={() => setReplyNotice(null)}
+          onSaved={(data, action) => {
+            // Saving/sending keeps the editor open; only final checker actions close it.
+            refreshNotice();
+            if (['approve', 'reject', 'reopen'].includes(action)) onUpdated?.();
+            if (['approve', 'reject'].includes(action)) setReplyNotice(null);
+          }}
+        />
+      )}
+      {confirmEl}
     </div>
   );
 }

@@ -1,44 +1,68 @@
-// // Litigations.js — Thin wrapper
+// // Litigations.js — Litigations landing page: one tile per litigation type,
+// // with live notice counts (All, WIP, Open, Overdue).
 
+// import { useState, useEffect } from 'react';
 // import SubServiceSelector from '../SubServiceSelector';
+// import { toList, daysUntil, P, AMB, RED } from '../../IncomeTaxPage/JobUiCommon';
+// import { legalApi, noticeDueDate, SKY } from '../LegalModals';
 
-// const ITEMS = [
+// const TILES = [
 //   {
+//     type: 'tds',
 //     label: 'TDS Litigations',
 //     description: 'Tax Deducted at Source case management, appeals & dispute tracking',
-//     path: '/legal-services/litigations/tds',
-//     icon: '📄',
-//     color: '#1A2F5A',
-//     light: '#EEF3FC',
-//     built: true,
-//     stats: [
-//       { label: 'Total Jobs', value: 0, color: '#1A2F5A' },
-//       { label: 'Active',     value: 0, color: '#0D6B52' },
-//       { label: 'Overdue',    value: 0, color: '#C62828', hint: 'Past due date' },
-//     ],
+//     icon: '📄', color: P, light: '#EEF3FC',
 //   },
 //   {
+//     type: 'income-tax',
 //     label: 'Income Tax Litigations',
 //     description: 'Income tax dispute, appeal tracking & assessment proceedings',
-//     path: '/legal-services/litigations/income-tax',
-//     icon: '📊',
-//     color: '#7C3AED',
-//     light: '#EDE9FE',
-//     built: true,
-//     stats: [
-//       { label: 'Total Jobs', value: 0, color: '#7C3AED' },
-//       { label: 'Active',     value: 0, color: '#0D6B52' },
-//       { label: 'Overdue',    value: 0, color: '#C62828', hint: 'Past due date' },
-//     ],
+//     icon: '📊', color: '#7C3AED', light: '#EDE9FE',
 //   },
 // ];
 
+// // Still being worked on (not acknowledged) and the due / extended due date has passed.
+// const isOverdue = (n) => (n.status === 'wip' || n.status === 'under_review') && (daysUntil(noticeDueDate(n)) ?? 0) < 0;
+
+// const statsFor = (notices) => ({
+//   total: notices.length,
+//   wip: notices.filter((n) => n.status === 'wip' || n.status === 'under_review').length,
+//   open: notices.filter((n) => n.status === 'open').length,
+//   overdue: notices.filter(isOverdue).length,
+// });
+
 // export default function Litigations() {
+//   const [notices, setNotices] = useState({});
+//   const [loading, setLoading] = useState(true);
+
+//   useEffect(() => {
+//     Promise.all(TILES.map((t) =>
+//       legalApi.notices.list({ litigation_type: t.type }).then(toList).catch(() => [])
+//     ))
+//       .then((lists) => setNotices(Object.fromEntries(TILES.map((t, i) => [t.type, lists[i]]))))
+//       .finally(() => setLoading(false));
+//   }, []);
+
+//   const items = TILES.map((t) => {
+//     const s = statsFor(notices[t.type] || []);
+//     const v = (x) => (loading ? '…' : x);
+//     return {
+//       ...t,
+//       path: `/legal-services/litigations/${t.type}`,
+//       stats: [
+//         { label: 'All Notices', value: v(s.total), color: t.color },
+//         { label: 'WIP', value: v(s.wip), color: AMB },
+//         { label: 'Open', value: v(s.open), color: SKY },
+//         { label: 'Overdue', value: v(s.overdue), color: RED, hint: 'Past due date' },
+//       ],
+//     };
+//   });
+
 //   return (
 //     <SubServiceSelector
 //       title="Litigations"
 //       subtitle="Select a service to get started"
-//       items={ITEMS}
+//       items={items}
 //       backPath="/legal-services"
 //       backLabel="Legal Services"
 //     />
@@ -57,103 +81,84 @@
 
 
 
-
-
-// Litigations.js — Fetches notice counts for each litigation type
-// Shows: All Notices, WIP, Open, Overdue
+// Litigations.js — Litigations landing page: one tile per litigation type,
+// with live All Cases + All Notices counts matching the Dashboard.
 
 import { useState, useEffect } from 'react';
 import SubServiceSelector from '../SubServiceSelector';
+import { toList, P } from '../../IncomeTaxPage/JobUiCommon';
+import { legalApi } from '../LegalModals';
 import { api } from '../../../services/api';
 
-// ══════════════════════════════════════════════════════════════════════
-// Helper: is notice overdue (no acknowledgment + past due date/extended)
-// ══════════════════════════════════════════════════════════════════════
-function isNoticeOverdue(notice) {
-  // Only wip/under_review notices can be overdue (open = acknowledged)
-  if (notice.status !== 'wip' && notice.status !== 'under_review') return false;
+const TILES = [
+  {
+    type: 'tds',
+    endpoint: '/legal-services/tds-litigations/',
+    label: 'TDS Litigations',
+    description: 'Tax Deducted at Source case management, appeals & dispute tracking',
+    icon: '📄', color: P, light: '#EEF3FC',
+  },
+  {
+    type: 'income-tax',
+    endpoint: '/legal-services/income-tax-litigations/',
+    label: 'Income Tax Litigations',
+    description: 'Income tax dispute, appeal tracking & assessment proceedings',
+    icon: '📊', color: '#7C3AED', light: '#EDE9FE',
+  },
+];
 
-  // Use extended_due_date if present, else due_date
-  const due = notice.extended_due_date || notice.due_date;
-  if (!due) return false;
-
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const dueDate = new Date(due); dueDate.setHours(0, 0, 0, 0);
-
-  // Overdue = due date already passed
-  return dueDate < today;
-}
+// Helper to reliably get total count whether paginated (res.data.count) or unpaginated list
+const getCount = (res) => {
+  if (!res) return 0;
+  if (typeof res.data?.count === 'number') return res.data.count;
+  return toList(res).length;
+};
 
 export default function Litigations() {
-  const [tdsNotices, setTdsNotices] = useState([]);
-  const [itNotices, setItNotices]   = useState([]);
-  const [loading, setLoading]       = useState(true);
+  const [dashboardData, setDashboardData] = useState({});
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Fetch notices for both TDS and Income Tax in parallel
-    Promise.all([
-      api.get('/legal-services/notices/', { params: { litigation_type: 'tds' } })
-        .then(r => Array.isArray(r.data) ? r.data : (r.data.results || []))
-        .catch(() => []),
-      api.get('/legal-services/notices/', { params: { litigation_type: 'income-tax' } })
-        .then(r => Array.isArray(r.data) ? r.data : (r.data.results || []))
-        .catch(() => []),
-    ]).then(([tds, it]) => {
-      setTdsNotices(tds);
-      setItNotices(it);
-    }).finally(() => setLoading(false));
+    Promise.all(
+      TILES.map((t) =>
+        Promise.all([
+          api.get(t.endpoint).catch(() => ({ data: [] })),
+          legalApi.notices.list({ litigation_type: t.type }).catch(() => ({ data: [] })),
+        ])
+      )
+    )
+      .then((results) => {
+        const mapped = {};
+        TILES.forEach((t, i) => {
+          mapped[t.type] = {
+            caseCount: getCount(results[i][0]),
+            noticeCount: getCount(results[i][1]),
+          };
+        });
+        setDashboardData(mapped);
+      })
+      .finally(() => setLoading(false));
   }, []);
 
-  // ── Compute counts ──
-  const computeStats = (notices) => {
-    const total    = notices.length;
-    const wip      = notices.filter(n => n.status === 'wip' || n.status === 'under_review').length;
-    const open     = notices.filter(n => n.status === 'open').length;
-    const overdue  = notices.filter(isNoticeOverdue).length;
-    return { total, wip, open, overdue };
-  };
+  const items = TILES.map((t) => {
+    const data = dashboardData[t.type] || { caseCount: 0, noticeCount: 0 };
+    const v = (x) => (loading ? '…' : x);
 
-  const tdsStats = computeStats(tdsNotices);
-  const itStats  = computeStats(itNotices);
-
-  const ITEMS = [
-    {
-      label: 'TDS Litigations',
-      description: 'Tax Deducted at Source case management, appeals & dispute tracking',
-      path: '/legal-services/litigations/tds',
-      icon: '📄',
-      color: '#1A2F5A',
-      light: '#EEF3FC',
-      built: true,
+    return {
+      ...t,
+      path: `/legal-services/litigations/${t.type}`,
       stats: [
-        { label: 'All Notices', value: loading ? '…' : tdsStats.total,   color: '#1A2F5A' },
-        { label: 'WIP',         value: loading ? '…' : tdsStats.wip,     color: '#f59e0b' },
-        { label: 'Open',        value: loading ? '…' : tdsStats.open,    color: '#0ea5e9' },
-        { label: 'Overdue',     value: loading ? '…' : tdsStats.overdue, color: '#C62828', hint: 'Past due date' },
+        { label: 'All Cases', value: v(data.caseCount), color: t.color },
+        { label: 'All Notices', value: v(data.noticeCount), color: t.color },
       ],
-    },
-    {
-      label: 'Income Tax Litigations',
-      description: 'Income tax dispute, appeal tracking & assessment proceedings',
-      path: '/legal-services/litigations/income-tax',
-      icon: '📊',
-      color: '#7C3AED',
-      light: '#EDE9FE',
-      built: true,
-      stats: [
-        { label: 'All Notices', value: loading ? '…' : itStats.total,   color: '#7C3AED' },
-        { label: 'WIP',         value: loading ? '…' : itStats.wip,     color: '#f59e0b' },
-        { label: 'Open',        value: loading ? '…' : itStats.open,    color: '#0ea5e9' },
-        { label: 'Overdue',     value: loading ? '…' : itStats.overdue, color: '#C62828', hint: 'Past due date' },
-      ],
-    },
-  ];
+    };
+  });
 
   return (
     <SubServiceSelector
       title="Litigations"
       subtitle="Select a service to get started"
-      items={ITEMS}
+      items={items}
       backPath="/legal-services"
       backLabel="Legal Services"
     />

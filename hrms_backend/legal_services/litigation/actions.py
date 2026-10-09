@@ -22,7 +22,7 @@ from .helpers import (
 
 User = get_user_model()
 
-
+from django.db.models import Q
 # ═══════════════════════════════════════════════════════════════════
 # COURT CASE
 # ═══════════════════════════════════════════════════════════════════
@@ -396,19 +396,233 @@ def log_notice_document_created(instance, user):
         update_notice_status_from_workflow(instance.notice)
 
 
+# def delete_notice_document_cascade(instance, user):
+#     """Cascade delete supports for main replies + log court_notice deletes."""
+#     notice = instance.notice
+#     court_case = notice.court_case
+#     is_court_notice = instance.doc_type == 'court_notice'
+
+#     if instance.doc_type == 'pending':
+#         NoticeDocument.objects.filter(
+#             notice=notice,
+#             reply_version=instance.id,
+#             doc_type='pending_support'
+#         ).delete()
+
+#     if is_court_notice:
+#         log_event(
+#             client_id=court_case.client_id,
+#             litigation_type=court_case.litigation_type,
+#             court_case=court_case,
+#             job_id=court_case.job_id,
+#             event_type='court_notice_deleted',
+#             title=f'Court notice deleted — {instance.file_name}',
+#             user=user,
+#             old_values={
+#                 'file_name': instance.file_name,
+#                 'doc_type': 'court_notice',
+#             },
+#             new_values={
+#                 'file_name': instance.file_name,
+#                 'doc_type': 'court_notice',
+#                 'notice_din': notice.din_number,
+#             },
+#         )
+
+#     if instance.file:
+#         try:
+#             instance.file.delete(save=False)
+#         except Exception:
+#             pass
+
+#     instance.delete()
+
+
+# def approve_notice_document(doc, user):
+#     original_doc_type = doc.doc_type
+#     doc.review_status = 'approved'
+#     doc.reviewed_by = user
+#     doc.reviewed_at = timezone.now()
+
+#     if doc.doc_type == 'pending':
+#         doc.doc_type = 'reply'
+#         NoticeDocument.objects.filter(
+#             notice=doc.notice,
+#             reply_version=doc.id,
+#             doc_type='pending_support'
+#         ).update(
+#             doc_type='supporting_doc',
+#             review_status='approved',
+#             reviewed_by=user,
+#             reviewed_at=doc.reviewed_at
+#         )
+
+#     doc.save()
+
+#     notice = doc.notice
+#     update_notice_status_from_workflow(notice)
+
+#     if original_doc_type == 'pending':
+#         evt_type = 'reply_approved'
+#         title_prefix = 'Reply approved'
+#         sup_names = list(NoticeDocument.objects.filter(
+#             notice=notice, reply_version=doc.id, doc_type='supporting_doc'
+#         ).values_list('file_name', flat=True))
+#     elif original_doc_type == 'acknowledgment':
+#         evt_type = 'ack_approved'
+#         title_prefix = 'Acknowledgment approved'
+#         sup_names = []
+#     else:
+#         evt_type = 'notice_doc_approved'
+#         title_prefix = 'Document approved'
+#         sup_names = []
+
+#     log_event(
+#         client_id=notice.court_case.client_id,
+#         litigation_type=notice.court_case.litigation_type,
+#         court_case=notice.court_case,
+#         job_id=notice.court_case.job_id,
+#         event_type=evt_type,
+#         title=f'{title_prefix} — {doc.file_name}',
+#         user=user,
+#         new_values={
+#             'file_name': doc.file_name,
+#             'reply_files': [doc.file_name],
+#             'doc_type': original_doc_type,
+#             'notice_din': notice.din_number,
+#             'supporting_docs': sup_names,
+#         },
+#     )
+#     return doc
+
+
+# def reject_notice_document(doc, reason, user):
+#     original_doc_type = doc.doc_type
+#     doc.review_status = 'rejected'
+#     doc.reviewed_by = user
+#     doc.reviewed_at = timezone.now()
+#     doc.review_note = reason
+#     doc.save()
+
+#     if original_doc_type == 'pending':
+#         NoticeDocument.objects.filter(
+#             notice=doc.notice,
+#             reply_version=doc.id,
+#             doc_type='pending_support'
+#         ).update(
+#             review_status='rejected',
+#             review_note=reason,
+#             reviewed_by=user,
+#             reviewed_at=doc.reviewed_at
+#         )
+
+#     notice = doc.notice
+#     update_notice_status_from_workflow(notice)
+
+#     if original_doc_type == 'pending':
+#         evt_type = 'reply_rejected'
+#         title_prefix = 'Reply rejected'
+#         sup_names = list(NoticeDocument.objects.filter(
+#             notice=notice, reply_version=doc.id, doc_type='pending_support'
+#         ).values_list('file_name', flat=True))
+#     elif original_doc_type == 'acknowledgment':
+#         evt_type = 'ack_rejected'
+#         title_prefix = 'Acknowledgment rejected'
+#         sup_names = []
+#     else:
+#         evt_type = 'notice_doc_rejected'
+#         title_prefix = 'Document rejected'
+#         sup_names = []
+
+#     log_event(
+#         client_id=notice.court_case.client_id,
+#         litigation_type=notice.court_case.litigation_type,
+#         court_case=notice.court_case,
+#         job_id=notice.court_case.job_id,
+#         event_type=evt_type,
+#         title=f'{title_prefix} — {doc.file_name}',
+#         user=user,
+#         new_values={
+#             'file_name': doc.file_name,
+#             'reply_files': [doc.file_name],
+#             'doc_type': original_doc_type,
+#             'notice_din': notice.din_number,
+#             'rejection_reason': reason,
+#             'supporting_docs': sup_names,
+#         },
+#     )
+#     return doc
+
+
+# def escalate_notice_document(doc, user):
+#     doc.review_status = 'escalated'
+#     doc.save(update_fields=['review_status'])
+
+#     if doc.doc_type == 'pending':
+#         evt_type = 'reply_escalated'
+#         title_prefix = 'Reply moved to CEO'
+#     elif doc.doc_type == 'acknowledgment':
+#         evt_type = 'ack_escalated'
+#         title_prefix = 'Acknowledgment moved to CEO'
+#     else:
+#         evt_type = 'notice_doc_escalated'
+#         title_prefix = 'Document moved to CEO'
+
+#     log_event(
+#         client_id=doc.notice.court_case.client_id,
+#         litigation_type=doc.notice.court_case.litigation_type,
+#         court_case=doc.notice.court_case,
+#         job_id=doc.notice.court_case.job_id,
+#         event_type=evt_type,
+#         title=f'{title_prefix} — {doc.file_name}',
+#         user=user,
+#         new_values={
+#             'file_name': doc.file_name,
+#             'reply_files': [doc.file_name],
+#             'doc_type': doc.doc_type,
+#             'notice_din': doc.notice.din_number,
+#         },
+#     )
+#     return doc
+
+
 def delete_notice_document_cascade(instance, user):
-    """Cascade delete supports for main replies + log court_notice deletes."""
+    """
+    Deletes the document and cascades deletion to all related files in the version bundle.
+    If ANY main reply in the bundle is deleted, the entire bundle (all main replies + all supporting docs) is wiped out.
+    """
     notice = instance.notice
     court_case = notice.court_case
     is_court_notice = instance.doc_type == 'court_notice'
 
-    if instance.doc_type == 'pending':
-        NoticeDocument.objects.filter(
+    # ── 1. IF IT IS A MAIN REPLY (Delete the entire version bundle) ──
+    if instance.doc_type in ['pending', 'reply']:
+        # Determine the parent ID for this bundle
+        parent_id = instance.reply_version if instance.reply_version else instance.id
+        
+        # Find ALL documents in this version bundle (Parent + Children + Supports)
+        bundle_docs = NoticeDocument.objects.filter(
             notice=notice,
-            reply_version=instance.id,
-            doc_type='pending_support'
-        ).delete()
+            doc_type__in=['pending', 'pending_support', 'reply', 'supporting_doc']
+        ).filter(
+            Q(id=parent_id) | Q(reply_version=parent_id)
+        )
 
+        # Delete physical files from disk
+        for doc in bundle_docs:
+            if doc.file:
+                try:
+                    doc.file.delete(save=False)
+                except Exception:
+                    pass
+        
+        # Delete database records
+        bundle_docs.delete()
+        
+        # Return immediately so Django doesn't try to double-delete
+        return
+
+    # ── 2. IF IT IS A COURT NOTICE (Log the event) ──
     if is_court_notice:
         log_event(
             client_id=court_case.client_id,
@@ -418,24 +632,19 @@ def delete_notice_document_cascade(instance, user):
             event_type='court_notice_deleted',
             title=f'Court notice deleted — {instance.file_name}',
             user=user,
-            old_values={
-                'file_name': instance.file_name,
-                'doc_type': 'court_notice',
-            },
-            new_values={
-                'file_name': instance.file_name,
-                'doc_type': 'court_notice',
-                'notice_din': notice.din_number,
-            },
+            old_values={'file_name': instance.file_name, 'doc_type': 'court_notice'},
+            new_values={'file_name': instance.file_name, 'doc_type': 'court_notice', 'notice_din': notice.din_number},
         )
 
-    if instance.file:
-        try:
-            instance.file.delete(save=False)
-        except Exception:
-            pass
+    # ── 3. SINGLE FILE DELETION (Support doc or Court Notice) ──
+    if instance.id:
+        if instance.file:
+            try:
+                instance.file.delete(save=False)
+            except Exception:
+                pass
+        instance.delete()
 
-    instance.delete()
 
 
 def approve_notice_document(doc, user):
@@ -446,16 +655,16 @@ def approve_notice_document(doc, user):
 
     if doc.doc_type == 'pending':
         doc.doc_type = 'reply'
+        
+        # 1. Approve attached Supporting Docs
         NoticeDocument.objects.filter(
-            notice=doc.notice,
-            reply_version=doc.id,
-            doc_type='pending_support'
-        ).update(
-            doc_type='supporting_doc',
-            review_status='approved',
-            reviewed_by=user,
-            reviewed_at=doc.reviewed_at
-        )
+            notice=doc.notice, reply_version=doc.id, doc_type='pending_support'
+        ).update(doc_type='supporting_doc', review_status='approved', reviewed_by=user, reviewed_at=doc.reviewed_at)
+        
+        # 2. Approve attached EXTRA Main Replies
+        NoticeDocument.objects.filter(
+            notice=doc.notice, reply_version=doc.id, doc_type='pending'
+        ).update(doc_type='reply', review_status='approved', reviewed_by=user, reviewed_at=doc.reviewed_at)
 
     doc.save()
 
@@ -468,29 +677,30 @@ def approve_notice_document(doc, user):
         sup_names = list(NoticeDocument.objects.filter(
             notice=notice, reply_version=doc.id, doc_type='supporting_doc'
         ).values_list('file_name', flat=True))
+        
+        extra_mains = list(NoticeDocument.objects.filter(
+            notice=notice, reply_version=doc.id, doc_type='reply'
+        ).values_list('file_name', flat=True))
+        all_reply_files = [doc.file_name] + extra_mains
+        
     elif original_doc_type == 'acknowledgment':
         evt_type = 'ack_approved'
         title_prefix = 'Acknowledgment approved'
         sup_names = []
+        all_reply_files = [doc.file_name]
     else:
         evt_type = 'notice_doc_approved'
         title_prefix = 'Document approved'
         sup_names = []
+        all_reply_files = [doc.file_name]
 
     log_event(
-        client_id=notice.court_case.client_id,
-        litigation_type=notice.court_case.litigation_type,
-        court_case=notice.court_case,
-        job_id=notice.court_case.job_id,
-        event_type=evt_type,
-        title=f'{title_prefix} — {doc.file_name}',
-        user=user,
+        client_id=notice.court_case.client_id, litigation_type=notice.court_case.litigation_type,
+        court_case=notice.court_case, job_id=notice.court_case.job_id,
+        event_type=evt_type, title=f'{title_prefix} — Bundle', user=user,
         new_values={
-            'file_name': doc.file_name,
-            'reply_files': [doc.file_name],
-            'doc_type': original_doc_type,
-            'notice_din': notice.din_number,
-            'supporting_docs': sup_names,
+            'file_name': doc.file_name, 'reply_files': all_reply_files,
+            'doc_type': original_doc_type, 'notice_din': notice.din_number, 'supporting_docs': sup_names,
         },
     )
     return doc
@@ -505,16 +715,10 @@ def reject_notice_document(doc, reason, user):
     doc.save()
 
     if original_doc_type == 'pending':
+        # Reject BOTH supports and extra main replies
         NoticeDocument.objects.filter(
-            notice=doc.notice,
-            reply_version=doc.id,
-            doc_type='pending_support'
-        ).update(
-            review_status='rejected',
-            review_note=reason,
-            reviewed_by=user,
-            reviewed_at=doc.reviewed_at
-        )
+            notice=doc.notice, reply_version=doc.id, doc_type__in=['pending_support', 'pending']
+        ).update(review_status='rejected', review_note=reason, reviewed_by=user, reviewed_at=doc.reviewed_at)
 
     notice = doc.notice
     update_notice_status_from_workflow(notice)
@@ -523,32 +727,32 @@ def reject_notice_document(doc, reason, user):
         evt_type = 'reply_rejected'
         title_prefix = 'Reply rejected'
         sup_names = list(NoticeDocument.objects.filter(
-            notice=notice, reply_version=doc.id, doc_type='pending_support'
+            notice=notice, reply_version=doc.id, doc_type__in=['pending_support', 'supporting_doc']
         ).values_list('file_name', flat=True))
+        
+        extra_mains = list(NoticeDocument.objects.filter(
+            notice=notice, reply_version=doc.id, doc_type__in=['pending', 'reply']
+        ).values_list('file_name', flat=True))
+        all_reply_files = [doc.file_name] + extra_mains
     elif original_doc_type == 'acknowledgment':
         evt_type = 'ack_rejected'
         title_prefix = 'Acknowledgment rejected'
         sup_names = []
+        all_reply_files = [doc.file_name]
     else:
         evt_type = 'notice_doc_rejected'
         title_prefix = 'Document rejected'
         sup_names = []
+        all_reply_files = [doc.file_name]
 
     log_event(
-        client_id=notice.court_case.client_id,
-        litigation_type=notice.court_case.litigation_type,
-        court_case=notice.court_case,
-        job_id=notice.court_case.job_id,
-        event_type=evt_type,
-        title=f'{title_prefix} — {doc.file_name}',
-        user=user,
+        client_id=notice.court_case.client_id, litigation_type=notice.court_case.litigation_type,
+        court_case=notice.court_case, job_id=notice.court_case.job_id,
+        event_type=evt_type, title=f'{title_prefix} — Bundle', user=user,
         new_values={
-            'file_name': doc.file_name,
-            'reply_files': [doc.file_name],
-            'doc_type': original_doc_type,
-            'notice_din': notice.din_number,
-            'rejection_reason': reason,
-            'supporting_docs': sup_names,
+            'file_name': doc.file_name, 'reply_files': all_reply_files,
+            'doc_type': original_doc_type, 'notice_din': notice.din_number,
+            'rejection_reason': reason, 'supporting_docs': sup_names,
         },
     )
     return doc
@@ -558,33 +762,37 @@ def escalate_notice_document(doc, user):
     doc.review_status = 'escalated'
     doc.save(update_fields=['review_status'])
 
+    # ✅ FIX: Cascade escalation to extra main replies and supports
+    if doc.doc_type == 'pending':
+        NoticeDocument.objects.filter(
+            notice=doc.notice, reply_version=doc.id, doc_type__in=['pending', 'pending_support']
+        ).update(review_status='escalated')
+
     if doc.doc_type == 'pending':
         evt_type = 'reply_escalated'
         title_prefix = 'Reply moved to CEO'
+        sup_names = list(NoticeDocument.objects.filter(notice=doc.notice, reply_version=doc.id, doc_type='pending_support').values_list('file_name', flat=True))
+        extra_mains = list(NoticeDocument.objects.filter(notice=doc.notice, reply_version=doc.id, doc_type='pending').values_list('file_name', flat=True))
+        all_reply_files = [doc.file_name] + extra_mains
     elif doc.doc_type == 'acknowledgment':
         evt_type = 'ack_escalated'
         title_prefix = 'Acknowledgment moved to CEO'
+        sup_names, all_reply_files = [], [doc.file_name]
     else:
         evt_type = 'notice_doc_escalated'
         title_prefix = 'Document moved to CEO'
+        sup_names, all_reply_files = [], [doc.file_name]
 
     log_event(
-        client_id=doc.notice.court_case.client_id,
-        litigation_type=doc.notice.court_case.litigation_type,
-        court_case=doc.notice.court_case,
-        job_id=doc.notice.court_case.job_id,
-        event_type=evt_type,
-        title=f'{title_prefix} — {doc.file_name}',
-        user=user,
+        client_id=doc.notice.court_case.client_id, litigation_type=doc.notice.court_case.litigation_type,
+        court_case=doc.notice.court_case, job_id=doc.notice.court_case.job_id,
+        event_type=evt_type, title=f'{title_prefix} — Bundle', user=user,
         new_values={
-            'file_name': doc.file_name,
-            'reply_files': [doc.file_name],
-            'doc_type': doc.doc_type,
-            'notice_din': doc.notice.din_number,
+            'file_name': doc.file_name, 'reply_files': all_reply_files,
+            'doc_type': doc.doc_type, 'notice_din': doc.notice.din_number, 'supporting_docs': sup_names,
         },
     )
     return doc
-
 
 # ═══════════════════════════════════════════════════════════════════
 # NOTICE REPLY (HTML editor)
@@ -1060,3 +1268,176 @@ def escalate_closure_bundle(court_case, user):
         user=user,
     )
     return court_case
+
+def submit_notice_extension(notice, new_date, notes, reply_files, ack_files, user):
+    from ..models import NoticeDocument, ReviewRequest
+
+    # ✅ Upload files using 'ext_pending' and 'ext_ack' so they don't mix with standard replies
+    reply_docs_data = []
+    for f in reply_files:
+        doc = NoticeDocument.objects.create(
+            notice=notice, file=f, doc_type='ext_pending', review_status='pending', uploaded_by=user
+        )
+        reply_docs_data.append({'id': doc.id, 'file_name': doc.file_name, 'file_url': doc.file.url})
+
+    ack_docs_data = []
+    for f in ack_files:
+        doc = NoticeDocument.objects.create(
+            notice=notice, file=f, doc_type='ext_ack', review_status='pending', uploaded_by=user
+        )
+        ack_docs_data.append({'id': doc.id, 'file_name': doc.file_name, 'file_url': doc.file.url})
+
+    # Create Review Request Payload
+    payload = {
+        'notice_id': notice.id,
+        'notice_din': notice.din_number,
+        'old_date': str(notice.extended_due_date or notice.due_date),
+        'new_date': str(new_date),
+        'notes': notes,
+        'reply_docs': reply_docs_data,
+        'ack_docs': ack_docs_data,
+    }
+
+    ReviewRequest.objects.create(
+        court_case=notice.court_case,
+        action_type='extension',
+        payload=payload,
+        status='pending',
+        submitted_by=user
+    )
+
+    # Change status to under review
+    notice.status = 'under_review'
+    notice.save(update_fields=['status', 'updated_at'])
+    
+    from .helpers import recompute_court_case_status
+    recompute_court_case_status(notice.court_case)
+
+    # Audit Trail
+    log_event(
+        client_id=notice.court_case.client_id, litigation_type=notice.court_case.litigation_type,
+        court_case=notice.court_case, job_id=notice.court_case.job_id,
+        event_type='notice_extension_submitted', title=f'Extension Requested — DIN: {notice.din_number}', user=user,
+        new_values=payload,
+    )
+    return notice
+
+
+# ═══════════════════════════════════════════════════════════════════
+# REVIEW REQUEST
+# ═══════════════════════════════════════════════════════════════════
+def approve_review_request(review, user):
+    apply_review_action(review)
+
+    review.status = 'approved'
+    review.reviewed_by = user
+    review.reviewed_at = timezone.now()
+    review.save(update_fields=['status', 'reviewed_by', 'reviewed_at'])
+
+    if review.action_type == 'notice_edit':
+        notice_id = (review.payload or {}).get('notice_id')
+        if notice_id:
+            try:
+                notice = CaseNotice.objects.get(id=notice_id)
+                update_notice_status_from_workflow(notice)
+            except CaseNotice.DoesNotExist:
+                pass
+
+    # ✅ Handle Extension Approval
+    if review.action_type == 'extension':
+        from ..models import CaseNotice, NoticeDocument
+        payload = review.payload
+        notice = CaseNotice.objects.get(id=payload['notice_id'])
+        
+        reply_ids = [d['id'] for d in payload.get('reply_docs', [])]
+        ack_ids = [d['id'] for d in payload.get('ack_docs', [])]
+        
+        # Approve docs and change pending type to 'ext_reply'
+        NoticeDocument.objects.filter(id__in=reply_ids).update(doc_type='ext_reply', review_status='approved')
+        NoticeDocument.objects.filter(id__in=ack_ids).update(review_status='approved')
+
+        # Append to notice history
+        history = notice.extension_history or []
+        history.insert(0, {
+            'id': f"ext_{int(timezone.now().timestamp())}",
+            'old_date': payload.get('old_date'),
+            'extended_due_date': payload.get('new_date'),
+            'notes': payload.get('notes'),
+            'reply_docs': payload.get('reply_docs', []),
+            'ack_docs': payload.get('ack_docs', []),
+            'created_at': timezone.now().isoformat(),
+            'created_by_name': (review.submitted_by.get_full_name() or review.submitted_by.email) if review.submitted_by else 'Unknown Maker',
+        })
+        
+        notice.extension_history = history
+        notice.extended_due_date = payload['new_date']
+        notice.status = 'wip'  # Back to WIP so Maker can continue working
+        notice.save(update_fields=['extension_history', 'extended_due_date', 'status', 'updated_at'])
+
+        log_event(
+            client_id=notice.court_case.client_id, litigation_type=notice.court_case.litigation_type,
+            court_case=notice.court_case, job_id=notice.court_case.job_id,
+            event_type='notice_extension_approved', title=f'Extension Approved — DIN: {notice.din_number}', user=user,
+            new_values=payload,
+        )
+
+    return review
+
+
+def reject_review_request(review, reason, user):
+    case = review.court_case
+    review.status = 'rejected'
+    review.reviewed_by = user
+    review.reviewed_at = timezone.now()
+    review.review_note = reason
+    review.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'review_note'])
+
+    if review.action_type == 'notice_edit':
+        notice_din = review.payload.get('notice_din', '—')
+        notice_id = review.payload.get('notice_id')
+        log_event(
+            client_id=case.client_id,
+            litigation_type=case.litigation_type,
+            court_case=case,
+            job_id=case.job_id,
+            event_type='notice_doc_rejected',
+            title=f'Notice info edit rejected — DIN {notice_din}',
+            user=user,
+            new_values={
+                'rejection_reason': reason,
+                'notice_din': notice_din,
+                'doc_type': 'notice_edit',
+            },
+        )
+
+        if notice_id:
+            try:
+                notice = CaseNotice.objects.get(id=notice_id)
+                update_notice_status_from_workflow(notice)
+            except CaseNotice.DoesNotExist:
+                pass
+
+    # ✅ Handle Extension Rejection
+    if review.action_type == 'extension':
+        from ..models import CaseNotice, NoticeDocument
+        payload = review.payload
+        notice = CaseNotice.objects.get(id=payload['notice_id'])
+        
+        reply_ids = [d['id'] for d in payload.get('reply_docs', [])]
+        ack_ids = [d['id'] for d in payload.get('ack_docs', [])]
+        
+        # Reject docs
+        NoticeDocument.objects.filter(id__in=reply_ids + ack_ids).update(review_status='rejected', review_note=reason)
+
+        notice.status = 'wip'
+        notice.save(update_fields=['status'])
+        
+        payload['rejection_reason'] = reason
+        log_event(
+            client_id=notice.court_case.client_id, litigation_type=notice.court_case.litigation_type,
+            court_case=notice.court_case, job_id=notice.court_case.job_id,
+            event_type='notice_extension_rejected', title=f'Extension Rejected — DIN: {notice.din_number}', user=user,
+            new_values=payload,
+        )
+
+    return review

@@ -41,17 +41,6 @@ def assign_mca_makers_checkers(mca_case, maker_ids, checker_ids, user):
 
     mca_case.makers.set(User.objects.filter(id__in=maker_ids))
     mca_case.checkers.set(User.objects.filter(id__in=checker_ids))
-
-    log_event(
-        client_id=mca_case.client_id,
-        litigation_type='mca',
-        job_id=mca_case.id,
-        event_type='assignment',
-        title='MCA Makers/Checkers updated',
-        user=user,
-        old_values={'makers': old_maker_names, 'checkers': old_checker_names},
-        new_values={'makers': names_for(maker_ids), 'checkers': names_for(checker_ids)},
-    )
     return mca_case
 
 
@@ -388,7 +377,7 @@ def submit_mca_srn_for_review(filing, user):
 
 
 def approve_mca_srn(doc, user):
-    """Checker verifies SRN receipt."""
+    """Checker verifies Supporting Document."""
     doc.review_status = 'approved'
     doc.reviewed_by = user
     doc.reviewed_at = timezone.now()
@@ -408,7 +397,7 @@ def approve_mca_srn(doc, user):
         litigation_type='mca',
         job_id=filing.mca_case.id,
         event_type='mca_srn_approved',
-        title=f' SRN verified — {doc.file_name}',
+        title=f'Supporting Document verified — {doc.file_name}', # ✅ Updated log text
         user=user,
         new_values={
             'file_name': doc.file_name,
@@ -417,9 +406,8 @@ def approve_mca_srn(doc, user):
     )
     return doc
 
-
 def reject_mca_srn(doc, reason, user):
-    """Checker rejects SRN receipt."""
+    """Reject this supporting file only. Reason lives on doc.review_note (History)."""
     doc.review_status = 'rejected'
     doc.review_note = reason
     doc.reviewed_by = user
@@ -427,23 +415,40 @@ def reject_mca_srn(doc, reason, user):
     doc.save()
 
     filing = doc.filing
-    filing.srn_review_status = 'rejected'
-    filing.srn_review_note = reason
+
+    still_pending = filing.documents.filter(
+        doc_type__in=[
+            'supporting_doc', 'pending_support',
+            'srn_receipt', 'challan', 'acknowledgment',
+        ],
+        review_status__in=['pending', 'escalated'],
+        is_deleted=False,
+    ).exclude(id=doc.id).exists()
+
+    if still_pending:
+        filing.srn_review_status = 'pending'
+        filing.srn_review_note = None  # do not put one file's reason on whole filing
+    else:
+        # No more open supporting reviews — stage rejected for maker resubmit
+        filing.srn_review_status = 'rejected'
+        filing.srn_review_note = None  # still no group banner; each file has its own note
+
     filing.srn_reviewed_by = user
     filing.srn_reviewed_at = timezone.now()
     filing.save(update_fields=[
         'srn_review_status', 'srn_review_note',
-        'srn_reviewed_by', 'srn_reviewed_at', 'updated_at'
+        'srn_reviewed_by', 'srn_reviewed_at', 'updated_at',
     ])
 
     update_filing_status_from_workflow(filing)
 
+    # ONE audit entry for THIS file
     log_event(
         client_id=filing.mca_case.client_id,
         litigation_type='mca',
         job_id=filing.mca_case.id,
         event_type='mca_srn_rejected',
-        title=f' SRN rejected — {doc.file_name}',
+        title=f'Supporting Document rejected — {doc.file_name}',
         user=user,
         new_values={
             'file_name': doc.file_name,
@@ -452,7 +457,6 @@ def reject_mca_srn(doc, reason, user):
         },
     )
     return doc
-
 
 def escalate_mca_srn(doc, user):
     doc.review_status = 'escalated'
@@ -566,14 +570,13 @@ def bulk_review_drafts(filing, action, note, user):
 # STAGE 2 — SRN SUBMIT + BULK REVIEW
 # ═══════════════════════════════════════════════════════════════════
 def submit_srn_for_review(filing, user):
-    """
-    Maker: move SRN-related draft docs to pending for checker.
-    """
-    srn_types = ['srn_receipt', 'challan', 'acknowledgment']
+    """Maker: move supporting_doc draft files to pending for checker."""
+    supp_types = ['supporting_doc', 'pending_support']
 
     drafts = filing.documents.filter(
         review_status='draft',
-        doc_type__in=srn_types,
+        doc_type__in=supp_types,
+        is_deleted=False,
     )
     count = drafts.count()
     if count == 0:
@@ -581,7 +584,6 @@ def submit_srn_for_review(filing, user):
 
     drafts.update(review_status='pending')
 
-    # Optional: mirror filing-level SRN review flag
     filing.srn_review_status = 'pending'
     filing.save(update_fields=['srn_review_status', 'updated_at'])
 
@@ -593,14 +595,15 @@ def submit_srn_for_review(filing, user):
         client_id=filing.mca_case.client_id,
         litigation_type='mca',
         job_id=filing.mca_case.id,
-        event_type='mca_srn_uploaded',  # or mca_docs_submitted if you prefer
-        title='SRN submitted for review',
+        event_type='mca_srn_uploaded',
+        title='Supporting documents submitted for review',
         user=user,
         new_values={
             'files': list(
                 filing.documents.filter(
-                    doc_type__in=srn_types,
+                    doc_type__in=supp_types,
                     review_status='pending',
+                    is_deleted=False,
                 ).values_list('file_name', flat=True)
             ),
         },
@@ -609,17 +612,16 @@ def submit_srn_for_review(filing, user):
 
 
 def bulk_review_srn(filing, action_type, note, user):
-    """
-    Checker/CEO: approve | reject | escalate all pending/escalated SRN docs.
-    """
+    """Checker/CEO: approve | reject | escalate all pending/escalated supporting docs."""
     from django.utils import timezone
     from .helpers import update_filing_status_from_workflow, recompute_mca_case_status
     from ..utils import log_event
 
-    srn_types = ['srn_receipt', 'challan', 'acknowledgment']
+    supp_types = ['supporting_doc', 'pending_support']
     qs = filing.documents.filter(
-        doc_type__in=srn_types,
+        doc_type__in=supp_types,
         review_status__in=['pending', 'escalated'],
+        is_deleted=False,
     )
     docs = list(qs)
     if not docs:
@@ -641,7 +643,7 @@ def bulk_review_srn(filing, action_type, note, user):
             'srn_review_status', 'srn_reviewed_by', 'srn_reviewed_at', 'updated_at',
         ])
         evt = 'mca_srn_approved'
-        title = ' SRN verified'
+        title = 'Supporting documents verified'
 
     elif action_type == 'reject':
         for doc in docs:
@@ -659,19 +661,18 @@ def bulk_review_srn(filing, action_type, note, user):
             'srn_reviewed_by', 'srn_reviewed_at', 'updated_at',
         ])
         evt = 'mca_srn_rejected'
-        title = ' SRN rejected'
+        title = 'Supporting documents rejected'
 
     elif action_type == 'escalate':
         qs.update(review_status='escalated')
         filing.srn_review_status = 'escalated'
         filing.save(update_fields=['srn_review_status', 'updated_at'])
         evt = 'mca_srn_escalated'
-        title = ' SRN moved to CEO'
+        title = 'Supporting documents moved to CEO'
     else:
         return filing, 0
 
     update_filing_status_from_workflow(filing)
-    # closed only after SRN approve — helpers already do this
     recompute_mca_case_status(filing.mca_case)
 
     log_event(

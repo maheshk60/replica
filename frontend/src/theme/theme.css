@@ -1,0 +1,811 @@
+/*
+  CAOAS theme — "Slate and indigo"
+  Import this file once at the app root (e.g. in index.js / App.jsx):
+    import "./theme/theme.css";
+
+  Every component should read colors, spacing, and radius from these
+  variables instead of hardcoding hex values or px numbers. That's what
+  keeps every page/modal/table looking like the same app.
+*/
+
+:root {
+  /* ---- Brand colors (max 4, used everywhere) ---- */
+  --color-primary: #0b2155;        /* indigo-700 — primary buttons, links, active states */
+  --color-primary-hover: #0b2155;  /* indigo-800 */
+  --color-primary-light: #EEF0FD;  /* indigo-50 — selected row bg, subtle highlights */
+
+  --color-slate-900: #0F172A;      /* primary text */
+  --color-slate-600: #475569;      /* secondary text */
+  --color-slate-400: #94A3B8;      /* placeholder / disabled text */
+  --color-slate-200: #E2E8F0;      /* borders */
+  --color-slate-100: #F1F5F9;      /* table header bg, hover bg */
+  --color-slate-50:  #F8FAFC;      /* page background */
+
+  --color-surface: #FFFFFF;        /* card / modal / table surface */
+
+  /* ---- Semantic colors (status only — not part of the 4-color brand palette) ---- */
+  --color-success: #16A34A;
+  --color-success-bg: #F0FDF4;
+  --color-danger: #DC2626;
+  --color-danger-bg: #FEF2F2;
+  --color-warning: #D97706;
+  --color-warning-bg: #FFFBEB;
+
+  /* ---- Typography ---- */
+  --font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-size-xs: 12px;
+  --font-size-sm: 13px;
+  --font-size-md: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 20px;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  /* ---- Spacing scale (use these instead of one-off px values) ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* ---- Shape ---- */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* ---- Elevation ---- */
+  --shadow-modal: 0 12px 32px rgba(15, 23, 42, 0.18);
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.06);
+
+  /* ---- Layout ---- */
+  --header-height: 56px;
+  --breakpoint-mobile: 640px;
+}
+
+/* Base reset so every page starts from the same defaults */
+body {
+  margin: 0;
+  font-family: var(--font-family);
+  font-size: var(--font-size-md);
+  color: var(--color-slate-900);
+  background: var(--color-slate-50);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Shared page container so content padding is consistent across features.
+   Full width by default — tables and dashboards need the space. Pages that
+   want a narrow, centered layout (like a single form or short list) should
+   add the page-container--narrow modifier instead of a one-off inline style. */
+.page-container {
+  width: 100%;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-4);
+  overflow-x: hidden;
+}
+
+.page-container--narrow {
+  max-width: 700px;
+}
+
+@media (max-width: 640px) {
+  .page-container {
+    padding: var(--space-4) var(--space-3);
+  }
+}
+
+/* ---- Filter bar: one shared look for every page's filter row ----
+   Wrap Search/Select/DatePicker/etc. in a .filter-bar so the bar itself
+   (background, border, spacing) matches everywhere. */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-slate-200);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-4);
+}
+
+.filter-bar .filter-field {
+  flex: 1 1 180px;
+  min-width: 160px;
+  max-width: 260px;
+}
+
+/* Whatever control is placed inside a filter-field (Input, Select,
+   DatePicker, etc.) should always fill the wrapper — otherwise a
+   growing wrapper doesn't actually make the visible control wider. */
+.filter-field > * {
+  width: 100%;
+}
+
+/* antd's Input.Search renders an extra wrapper (.ant-input-group /
+   .ant-input-wrapper) around the actual input, which has its own
+   default width and ignores the rule above unless targeted directly. */
+.filter-field .ant-input-group,
+.filter-field .ant-input-wrapper,
+.filter-field .ant-input-group-wrapper {
+  width: 100% !important;
+}
+
+/* Width modifiers for filter fields used outside the bordered .filter-bar —
+   e.g. inside a page header, where one field (search) should grow to fill
+   available space and another (a picker) should stay a fixed width.
+   Chained with .filter-field for specificity: otherwise ".filter-bar
+   .filter-field"'s max-width:260px (two classes) silently wins over a
+   single-class modifier and the field never actually grows. */
+.filter-bar .filter-field.filter-field--grow {
+  flex: 1 1 auto;
+  min-width: 200px;
+  max-width: none;
+}
+.filter-bar .filter-field.filter-field--fixed {
+  flex: 0 0 220px;
+  max-width: 220px;
+  min-width: 160px;
+}
+
+/* Pins a field to the right edge of the filter row regardless of how
+   many other fields are in front of it — belt-and-suspenders alongside
+   filter-field--grow, in case more filters get added to a row later. */
+.filter-field--right {
+  margin-left: auto;
+}
+
+/* ---- Page header: title always on its own line ----
+   Filters/actions go in a separate .filter-bar row below (see
+   PageHeader.jsx) — this is what makes the filter row wrap cleanly
+   whether a page has 2 filters or 10, and avoids fixed-width fields
+   overflowing on narrow screens. */
+.page-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: var(--space-4);
+}
+
+.page-header-title {
+  font-size: 22px;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-slate-900);
+  margin: 0;
+}
+
+/* Boxed header variant: title + filter row share one card border instead
+   of the title floating above a separately-bordered filter bar. */
+.page-header-boxed {
+  margin-bottom: var(--space-4);
+}
+.page-header-boxed .page-header-title {
+  margin-bottom: var(--space-3);
+}
+.page-header-boxed .filter-bar {
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin-bottom: 0;
+}
+
+/* ---- Standardize every antd form control to the same height/radius/border ----
+   Covers Input, Select, DatePicker, MonthPicker, YearPicker, RangePicker,
+   and TimePicker — antd renders all pickers through .ant-picker, so one
+   rule covers every picker variant. Multi-select is excluded from the
+   fixed height: it needs to grow when more than one/two tags are
+   selected, otherwise the chips get clipped or overlap. */
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-select:not(.ant-select-customize-input):not(.ant-select-multiple) .ant-select-selector,
+.ant-picker {
+  height: 36px !important;
+  border-radius: var(--radius-sm) !important;
+  border-color: var(--color-slate-200) !important;
+  font-size: var(--font-size-sm) !important;
+}
+
+/* Inputs with a prefix/suffix icon (search fields, allowClear, password
+   toggles) — forcing a fixed height above can throw off antd's own
+   vertical centering for the icon and the inner <input>, so this makes
+   the alignment explicit rather than relying on antd's defaults still
+   working at a height we've overridden. */
+.ant-input-affix-wrapper {
+  display: flex !important;
+  align-items: center !important;
+}
+.ant-input-affix-wrapper .ant-input {
+  height: auto !important;
+  flex: 1;
+}
+.ant-input-prefix,
+.ant-input-suffix {
+  display: inline-flex !important;
+  align-items: center !important;
+  font-size: 14px;
+}
+
+.ant-select:not(.ant-select-customize-input) .ant-select-selector {
+  display: flex !important;
+  align-items: center !important;
+}
+
+/* Multi-select: fixed min-height instead of a fixed height, so it grows
+   to a second line rather than clipping tag chips when more than one or
+   two options are selected. */
+.ant-select-multiple .ant-select-selector {
+  min-height: 36px !important;
+  height: auto !important;
+  border-radius: var(--radius-sm) !important;
+  border-color: var(--color-slate-200) !important;
+  font-size: var(--font-size-sm) !important;
+  padding-top: 2px !important;
+  padding-bottom: 2px !important;
+}
+.ant-select-multiple .ant-select-selection-overflow {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+/* Selected-tag chips inside a multi-select — the theme's light indigo
+   tint instead of antd's plain grey default, and enough padding/height
+   that two or more chips read clearly instead of looking cramped. */
+.ant-select-selection-item {
+  background: var(--color-primary-light) !important;
+  border: 1px solid var(--color-primary-light) !important;
+  border-radius: var(--radius-sm) !important;
+  color: var(--color-primary) !important;
+  height: 26px !important;
+  line-height: 24px !important;
+  margin: 2px !important;
+}
+.ant-select-selection-item-remove {
+  color: var(--color-primary) !important;
+}
+
+.ant-input:hover,
+.ant-input-affix-wrapper:hover,
+.ant-select:not(.ant-select-disabled):hover .ant-select-selector,
+.ant-picker:hover {
+  border-color: var(--color-primary) !important;
+}
+
+.ant-input:focus,
+.ant-input-focused,
+.ant-input-affix-wrapper-focused,
+.ant-select-focused:not(.ant-select-disabled) .ant-select-selector,
+.ant-picker-focused {
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 0 2px var(--color-primary-light) !important;
+}
+
+/* Faded/dulled placeholder text everywhere — inputs, selects, pickers,
+   and plain native inputs — so a placeholder never reads as strongly as
+   text the person actually typed. Matches the muted tone used for
+   "No files attached yet." and similar empty-state text.
+   Several selectors target the same thing (native ::placeholder, antd's
+   .ant-select-selection-placeholder, the search input inside a Select)
+   because antd's own placeholder color can be injected via CSS-in-JS
+   after this stylesheet loads — same tie-breaking issue Modal and Table
+   needed extra-specific overrides for. */
+::placeholder {
+  color: var(--color-slate-400) !important;
+  opacity: 1 !important;
+}
+input::placeholder,
+textarea::placeholder,
+.ant-input::placeholder,
+.ant-input-affix-wrapper input::placeholder,
+textarea.ant-input::placeholder,
+.ant-picker input::placeholder,
+.ant-picker-range .ant-picker-input input::placeholder,
+.ant-select-selection-search-input::placeholder {
+  color: var(--color-slate-400) !important;
+  opacity: 1 !important;
+  -webkit-text-fill-color: var(--color-slate-400) !important;
+}
+.ant-select-selection-placeholder,
+.ant-select-single .ant-select-selector .ant-select-selection-placeholder,
+.ant-select-multiple .ant-select-selector .ant-select-selection-placeholder {
+  color: var(--color-slate-400) !important;
+}
+
+/* Theme antd's own Button component too, for pages that use antd Button
+   directly instead of the .btn/.icon-btn classes. */
+.ant-btn-primary {
+  background-color: var(--color-primary) !important;
+  border-color: var(--color-primary) !important;
+}
+.ant-btn-primary:hover,
+.ant-btn-primary:focus {
+  background-color: var(--color-primary-hover) !important;
+  border-color: var(--color-primary-hover) !important;
+}
+.ant-switch.ant-switch-checked {
+  background-color: var(--color-primary) !important;
+}
+
+/* ---- Theme antd's own Table to match the shared Table component ----
+   Some pages keep antd's <Table> instead of the shared components/Table
+   for real functionality it doesn't support yet (row selection with
+   per-row disabled checkboxes, server-side pagination, dynamic
+   role-based columns). Without this, those tables silently fell back to
+   antd's default look, and pages ended up managing their own one-off
+   scoped <style> blocks to patch it back to matching — same
+   inconsistency problem Modal had before it got this treatment. This
+   replicates the shared Table.css look (colors, compact spacing,
+   sortable-header hover, pagination accent) via antd's real class names,
+   so ANY page using plain antd Table matches automatically. */
+.ant-table {
+  font-size: 14px !important;
+}
+.ant-table-thead > tr > th {
+  background: var(--color-slate-100) !important;
+  color: var(--color-slate-600) !important;
+  font-weight: var(--font-weight-medium) !important;
+  font-size: var(--font-size-xs) !important;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 6px 8px !important;
+}
+.ant-table-thead > tr > th:hover {
+  color: var(--color-slate-900) !important;
+}
+.ant-table-tbody > tr > td {
+  padding: 4px 8px !important;
+  color: var(--color-slate-900);
+}
+.ant-table-tbody > tr:nth-child(even) > td {
+  background: var(--color-slate-50);
+}
+.ant-table-tbody > tr:hover > td {
+  background: var(--color-primary-light) !important;
+}
+.ant-table-tbody > tr.ant-table-row-selected > td {
+  background: var(--color-primary-light) !important;
+}
+.ant-pagination-item-active {
+  background: var(--color-primary) !important;
+  border-color: var(--color-primary) !important;
+}
+.ant-pagination-item-active a {
+  color: #fff !important;
+}
+.ant-table-column-sorter-up.active,
+.ant-table-column-sorter-down.active {
+  color: var(--color-primary) !important;
+}
+.ant-table-filter-trigger.active {
+  color: var(--color-primary) !important;
+}
+.ant-checkbox-checked .ant-checkbox-inner {
+  background-color: var(--color-primary) !important;
+  border-color: var(--color-primary) !important;
+}
+/* ---- Theme rsuite components (e.g. rsuite's DatePicker) to match ----
+   rsuite exposes its palette as CSS custom properties, so this remaps the
+   ones it uses for "primary" — but variable remapping is only reliable if
+   rsuite's stylesheet loads BEFORE this file. Since import order is easy
+   to get wrong across a real app, every rule below also hard-sets the
+   actual color property with !important on rsuite's own classes, so the
+   indigo shows correctly even if the variable remap doesn't win the
+   cascade. */
+:root {
+  /* Full primary scale remap — rsuite components pull from different steps
+     of this scale (50 through 900) for different states, so overriding
+     only 500/600/700 leaves some buttons/states on rsuite's default blue.
+     These are the same indigo family as --color-primary, just at
+     different tints/shades. */
+  --rs-primary-50: var(--color-primary-light);
+  --rs-primary-100: #E0E7FF;
+  --rs-primary-200: #C7D2FE;
+  --rs-primary-300: #A5B4FC;
+  --rs-primary-400: #818CF8;
+  --rs-primary-500: var(--color-primary);
+  --rs-primary-600: var(--color-primary-hover);
+  --rs-primary-700: #312E81;
+  --rs-primary-800: #27225F;
+  --rs-primary-900: #1E1B4B;
+  --rs-border-primary: var(--color-slate-200);
+  --rs-input-focus-border: var(--color-primary);
+  --rs-radius-md: var(--radius-sm);
+}
+.rs-picker-toggle {
+  min-height: 36px !important;
+  display: flex !important;
+  align-items: center !important;
+  font-size: var(--font-size-sm) !important;
+  border-color: var(--color-slate-200) !important;
+}
+.rs-picker-toggle:hover {
+  border-color: var(--color-primary) !important;
+}
+.rs-picker[data-focus="true"] .rs-picker-toggle,
+.rs-picker-toggle[data-active="true"] {
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 0 2px var(--color-primary-light) !important;
+}
+/* "Today" circle in the calendar dropdown */
+.rs-calendar-table-cell-is-today .rs-calendar-table-cell-day {
+  background-color: var(--color-primary) !important;
+  color: #fff !important;
+}
+/* Selected-day ring in the calendar dropdown */
+.rs-calendar-table-cell-selected .rs-calendar-table-cell-content {
+  box-shadow: inset 0 0 0 1px var(--color-primary) !important;
+}
+.rs-calendar-table-cell-content:hover {
+  background-color: var(--color-primary-light) !important;
+}
+/* "OK"/primary buttons inside the picker footer */
+.rs-btn-primary {
+  background-color: var(--color-primary) !important;
+  border-color: var(--color-primary) !important;
+}
+.rs-btn-primary:hover,
+.rs-btn-primary:focus {
+  background-color: var(--color-primary-hover) !important;
+}
+/* Month/year toolbar nav buttons and the current month label */
+.rs-calendar-header-month-toolbar .rs-calendar-header-backward:hover,
+.rs-calendar-header-month-toolbar .rs-calendar-header-forward:hover,
+.rs-calendar-header-title:hover {
+  color: var(--color-primary) !important;
+}
+/* "Today" / "Yesterday" shortcut links under the calendar */
+.rs-btn[data-appearance="link"] {
+  color: var(--color-primary) !important;
+}
+.rs-btn[data-appearance="link"]:hover,
+.rs-btn[data-appearance="link"]:active {
+  color: var(--color-primary-hover) !important;
+}
+/* Active cell in the month/year jump-to dropdown */
+.rs-calendar-month-dropdown-cell-active .rs-calendar-month-dropdown-cell-content {
+  background-color: var(--color-primary) !important;
+  color: #fff !important;
+}
+
+/* Shared button styles so every page's buttons match */
+.btn {
+  font-family: var(--font-family);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  line-height: 1.4;
+}
+
+.btn-primary {
+  background: var(--color-primary);
+  color: #FFFFFF;
+}
+.btn-primary:hover {
+  background: var(--color-primary-hover);
+}
+
+.btn-secondary {
+  background: var(--color-surface);
+  color: var(--color-slate-900);
+  border-color: var(--color-slate-200);
+}
+.btn-secondary:hover {
+  background: var(--color-slate-100);
+}
+
+.btn-danger {
+  background: var(--color-danger);
+  color: #FFFFFF;
+}
+
+/* .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+} */
+
+.btn:disabled {
+  opacity: 1;
+  cursor: not-allowed;
+  color: var(--color-slate-400) !important;
+  background: var(--color-slate-100) !important;
+  border-color: var(--color-slate-200) !important;
+}
+
+.btn-primary:disabled {
+  color: #FFFFFF !important;
+  background: var(--color-slate-400) !important;
+  border-color: var(--color-slate-400) !important;
+}
+
+.btn-secondary:disabled {
+  color: var(--color-slate-400) !important;
+  background: var(--color-slate-100) !important;
+  border-color: var(--color-slate-200) !important;
+}
+
+/* ============================================================
+   ANT DESIGN BUTTON — DISABLED STATE
+   Keep disabled button text clearly visible
+   ============================================================ */
+
+.ant-btn-primary:disabled,
+.ant-btn-primary.ant-btn-disabled {
+  color: #ffffff !important;
+  background-color: var(--color-slate-400) !important;
+  border-color: var(--color-slate-400) !important;
+  opacity: 1 !important;
+  text-shadow: none !important;
+  cursor: not-allowed !important;
+}
+
+.ant-btn-primary:disabled:hover,
+.ant-btn-primary.ant-btn-disabled:hover {
+  color: #ffffff !important;
+  background-color: var(--color-slate-400) !important;
+  border-color: var(--color-slate-400) !important;
+}
+
+/* Small icon-only buttons used in table action columns (approve/reject etc.) */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-slate-200);
+  background: var(--color-surface);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.icon-btn:hover {
+  background: var(--color-slate-100);
+}
+.icon-btn-success {
+  color: var(--color-success);
+  border-color: var(--color-success);
+}
+.icon-btn-danger {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+.icon-btn-primary {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+/* "In Progress" status tag: text color only, background/border stay on
+   antd's normal "yellow" preset — a raw hex passed to Tag's own color
+   prop replaces the background too, which isn't wanted here. */
+.status-tag-inprogress-text {
+  color: #b7a15f !important;
+}
+
+/* ---- Plain content card ----
+   For non-modal panels (forms, summaries) that still need a consistent
+   bordered surface matching the rest of the theme. */
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-slate-200);
+  border-radius: 12px;
+  padding: var(--space-4) var(--space-5);
+}
+
+.card-title {
+  font-size: 16px;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-slate-900);
+  margin: 0 0 var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-slate-200);
+}
+
+/* ---- Two-column layout: sidebar form + main content ----
+   Stacks to a single column at the same breakpoint the table itself
+   switches to its mobile card view (640px), so a table sitting inside
+   this layout doesn't end up in a mismatched in-between state where
+   the column has collapsed but the table hasn't adapted yet. */
+.two-col-layout {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: var(--space-5);
+  align-items: start;
+}
+
+/* Same layout, mirrored: use when the main/wide content should come first
+   in the DOM (e.g. a table) but still render in the wide column, with a
+   narrow side panel (e.g. a callout) visually on the right. */
+.two-col-layout--reverse {
+  grid-template-columns: 1fr 320px;
+}
+
+/* Grid/flex items default to min-width:auto, meaning they won't shrink
+   below their content's natural width — so a wide table inside a "1fr"
+   column can silently push the whole page wider than the viewport on
+   mobile instead of scrolling internally like it's supposed to. */
+.two-col-layout > * {
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .two-col-layout {
+    grid-template-columns: 1fr;
+    gap: var(--space-4);
+  }
+}
+
+/* ---- Three-column layout: sidebar, main content, sidebar ----
+   Stacks to a single column below 900px, since three side-by-side
+   columns need more room than the two-column layout does. */
+.three-col-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr 280px;
+  gap: var(--space-5);
+  align-items: start;
+}
+.three-col-layout > * {
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .three-col-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- Callout card: a highlighted info panel (tips, warnings, notices) ----
+   Reuses the theme's semantic colors instead of one-off hex values. */
+.callout {
+  border-radius: 12px;
+  border: 1px solid;
+  overflow: hidden;
+}
+.callout-header {
+  padding: 10px 16px;
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-md);
+  color: #fff;
+}
+.callout-body {
+  padding: var(--space-4) var(--space-5);
+  font-size: var(--font-size-sm);
+}
+.callout-success {
+  border-color: var(--color-success);
+  background: var(--color-success-bg);
+}
+.callout-success .callout-header {
+  background: var(--color-success);
+}
+
+/* ---- Small stat summary chips (e.g. "42 total", "8 active") ---- */
+.stat-chip-row {
+  display: flex;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  flex-wrap: wrap;
+}
+.stat-chip {
+  background: var(--color-surface);
+  border: 1px solid var(--color-slate-200);
+  border-radius: var(--radius-md);
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.stat-chip .stat-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.stat-chip .stat-label {
+  font-size: 11px;
+  color: var(--color-slate-400);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.stat-chip .stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-slate-900);
+  line-height: 1;
+}
+
+/* ---- Small tag chip: employee code, department, or similar short label ---- */
+.tag-chip {
+  display: inline-block;
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  white-space: nowrap;
+}
+.tag-chip.mono {
+  font-family: monospace;
+}
+
+/* ---- Avatar initials circle: table rows, profile headers ---- */
+.avatar-initials {
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+/* ---- Segmented toggle: a two/three-way pill switch (e.g. Active/All) ----
+   Reads more intentionally in a toolbar than a bare Switch + text label. */
+.segmented-toggle {
+  display: inline-flex;
+  background: var(--color-slate-100);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.segmented-toggle button {
+  border: none;
+  background: transparent;
+  padding: 6px 14px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-slate-600);
+  border-radius: calc(var(--radius-sm) - 2px);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.segmented-toggle button.active {
+  background: var(--color-surface);
+  color: var(--color-primary);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+/* Form fields inside a .card use the same spacing rhythm as filter fields.
+   Scoped to antd's form-item label wrapper specifically — NOT a blanket
+   ".card label" rule, since antd's Checkbox is itself a <label> wrapping
+   the box and its text inline; a generic rule here would force that
+   label to display:block too and break the checkbox onto its own line. */
+.card .ant-form-item-label > label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-slate-600);
+}
+.card .form-row {
+  margin-bottom: var(--space-4);
+}
+
+@media (max-width: 640px) {
+  /* Reduce card padding on mobile so a table nested inside it doesn't
+     end up double-padded (page-container padding + card padding +
+     table-wrapper's own mobile card spacing all compounding). */
+  .card {
+    padding: var(--space-3);
+  }
+  /* Table's own mobile styles assume it isn't already inside a padded
+     container — cancel the table-wrapper's border/background here since
+     the .card around it already provides that boundary. */
+  .card .table-wrapper {
+    border: none;
+    background: transparent;
+  }
+}

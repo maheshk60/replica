@@ -184,3 +184,44 @@ class ProfileUpdateView(APIView):
             user.set_password(new_password)
         user.save()
         return Response({"detail": "Profile updated successfully."})
+
+
+
+
+
+
+
+from django.views.decorators.csrf import csrf_exempt
+ 
+ 
+@csrf_exempt
+def list_app_users(request):
+    """GET — list all app users for assignee dropdown."""
+    from rest_framework.authentication import TokenAuthentication
+    from django.http import JsonResponse
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+ 
+    auth = TokenAuthentication()
+    try:
+        result = auth.authenticate(request)
+        if not result:
+            return JsonResponse({'error': 'Unauthorized'}, status=401)
+        user = result[0]
+    except Exception:
+        return JsonResponse({'error': 'Unauthorized'}, status=401)
+ 
+    users = User.objects.filter(is_active=True).values(
+        'id', 'first_name', 'last_name', 'email'
+    ).order_by('first_name', 'last_name')
+ 
+    result_list = []
+    for u in users:
+        full_name = f"{u['first_name']} {u['last_name']}".strip() or u['email']
+        result_list.append({
+            'id':        u['id'],
+            'full_name': full_name,
+            'email':     u['email'],
+        })
+ 
+    return JsonResponse(result_list, safe=False)

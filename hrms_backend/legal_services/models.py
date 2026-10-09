@@ -553,6 +553,7 @@ class ReviewRequest(models.Model):
         ('appeal',       'Submit Appeal'),
         ('adjournment',  'Log Adjournment'),
         ('notice_edit',  'Notice Info Edit'),
+        ('extension',    'Due Date Extension'),
     ]
 
     STATUS_CHOICES = [
@@ -625,6 +626,9 @@ class CaseNotice(models.Model):
     due_date          = models.DateField(blank=True, null=True)
     extended_due_date = models.DateField(blank=True, null=True)
     ph_date           = models.DateField(blank=True, null=True)
+
+    extension_history = models.JSONField(default=list, blank=True, null=True)
+
     status            = models.CharField(max_length=20, choices=STATUS_CHOICES, default='wip')
     notes             = models.TextField(blank=True, null=True)
     created_by        = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_notices')
@@ -665,6 +669,9 @@ class NoticeDocument(models.Model):
         ('acknowledgment',  'Acknowledgment'),
         ('supporting_doc', 'Supporting Document'),
         ('pending_support', 'Pending Support Doc'),
+        ('ext_pending',  'Pending Ext Reply'),   
+        ('ext_reply',    'Approved Ext Reply'),  
+        ('ext_ack',      'Extension Ack'),       
     ]
 
     REVIEW_STATUS_CHOICES = [
@@ -1030,6 +1037,8 @@ class MCAFilingDocument(models.Model):
         null=True, blank=True, related_name='uploaded_mca_docs'
     )
     uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    is_deleted = models.BooleanField(default=False)
 
     class Meta:
         ordering = ['-uploaded_at']

@@ -3,11 +3,10 @@ import { createPortal } from 'react-dom';
 import mammoth from 'mammoth';
 import { Document, Packer, Paragraph, TextRun, ImageRun, HeadingLevel, AlignmentType, Table, TableRow, TableCell, WidthType, VerticalAlign } from 'docx';
 import { saveAs } from 'file-saver';
-import html2pdf from 'html2pdf.js';
 import { Select } from 'antd';
 import { api } from '../../services/api';
-import RejectModal, { AcceptModal } from './RejectModal';
-import { DownloadOutlined } from '@ant-design/icons';
+import { RejectModal, AcceptModal, ConfirmModal } from './LegalModals';
+import { downloadFile, fmtRelativeTime, P, GR, GL, AMB, AMBL, RED, REDL, PUR, PURL, REVIEW_STATUS } from './legalCommon';
 
 // ══════════════════════════════════════════════════════════════════
 // A4 PAGE GEOMETRY & THEME
@@ -15,8 +14,10 @@ import { DownloadOutlined } from '@ant-design/icons';
 const PAGE_W_IN = 8.27, PAGE_H_IN = 11.69, PAGE_MARGIN_TOP_IN = 0.3, PAGE_MARGIN_BOTTOM_IN = 0.35, SIDE_PADDING_IN = 0.85;
 const CSS_PX_PER_IN = 96, PAGE_CONTENT_BUDGET_IN = PAGE_H_IN - PAGE_MARGIN_TOP_IN - PAGE_MARGIN_BOTTOM_IN;
 const PAGE_CONTENT_BUDGET_PX = PAGE_CONTENT_BUDGET_IN * CSS_PX_PER_IN, MARKER_GAP_PX = 5;
-const C = { ink: '#1c1c1c', slate: '#475569', muted: '#6b7280', border: '#2a2b2f', borderLight: '#3f4046', bg: '#F8FAFC', bgSoft: '#FBFCFE', canvas: '#e9ebf1', green: '#0f8a3c', greenBg: '#ECFDF5', greenBorder: '#A7F3D0', amber: '#B45309', amberBg: '#FFFBEB', amberBorder: '#FCD34D', red: '#B91C1C', redBg: '#FEF2F2', redBorder: '#FECACA', navy: '#1E3A5F', navyLight: '#1b2a6b', navyMid: '#2A4F8F', blue: '#2563EB', blueBg: '#EFF6FF', blueBorder: '#BFDBFE', purple: '#6D28D9', purpleBg: '#F1E8FE', purpleBorder: '#DCC8FA', paper: '#ffffff', orange: '#9A3412', orangeLight: '#C2410C', orangeDark: '#7C2D12' };
-const STATUS_META = { draft: { label: 'Draft', color: '#6b7280', bg: '#f3f4f6', border: '#d1d5db', icon: '📝' }, pending: { label: 'In Review', color: C.amber, bg: C.amberBg, border: C.amberBorder, icon: '⏳' }, approved: { label: 'Approved', color: C.green, bg: C.greenBg, border: C.greenBorder, icon: '✅' }, rejected: { label: 'Rejected', color: C.red, bg: C.redBg, border: C.redBorder, icon: '❌' }, escalated: { label: 'Move to CEO', color: C.purple, bg: C.purpleBg, border: C.purpleBorder, icon: '↑' } };
+const C = { ink: '#1c1c1c', slate: '#475569', muted: '#6b7280', border: '#2a2b2f', borderLight: '#3f4046', bg: '#F8FAFC', bgSoft: '#FBFCFE', canvas: '#e9ebf1', green: GR, greenBg: GL, greenBorder: '#A7F3D0', amber: AMB, amberBg: AMBL, amberBorder: '#FCD34D', red: RED, redBg: REDL, redBorder: '#FECACA', navy: P, navyLight: P, navyMid: '#2A4F8F', blue: '#2563EB', blueBg: '#EFF6FF', blueBorder: '#BFDBFE', purple: PUR, purpleBg: PURL, purpleBorder: '#DCC8FA', paper: '#ffffff', orange: '#9A3412', orangeLight: '#C2410C', orangeDark: '#7C2D12' };
+// Labels + colours come from the shared legal map so the editor says the same thing as every other screen.
+const STATUS_ICONS = { draft: '📝', pending: '⏳', approved: '✅', rejected: '❌', escalated: '↑' };
+const STATUS_META = Object.fromEntries(Object.entries(STATUS_ICONS).map(([k, icon]) => [k, { ...REVIEW_STATUS[k], border: REVIEW_STATUS[k].bg, icon }]));
 
 const ChevronLeftIcon = () => (<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6" /></svg>);
 const ChevronRightIcon = () => (<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6" /></svg>);
@@ -129,18 +130,9 @@ function downloadAsPdfViaPrint(contentHtml, filename, onDone, onError) {
   }
 }
 
-function fmtDate(d) { if (!d) return '—'; return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); }
-function fmtRelativeTime(d) { if (!d) return ''; const diff = Math.floor((Date.now() - new Date(d)) / 1000); if (diff < 60) return 'just now'; if (diff < 3600) return `${Math.floor(diff / 60)}m ago`; if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`; if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`; return fmtDate(d); }
 function escapeHtml(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-const handleDownloadFile = async (fileUrl, fileName) => {
-  if (!fileUrl) return;
-  try {
-    const response = await fetch(fileUrl); const blob = await response.blob();
-    const url = window.URL.createObjectURL(blob); const link = document.createElement('a');
-    link.href = url; link.download = fileName || 'download'; document.body.appendChild(link);
-    link.click(); document.body.removeChild(link); window.URL.revokeObjectURL(url);
-  } catch (e) { console.error('Download failed', e); }
-};
+// Shared helper from legalCommon; errors are logged, not thrown.
+const handleDownloadFile = (fileUrl, fileName) => downloadFile(fileUrl, fileName).catch((e) => console.error('Download failed', e));
 
 // ✅ Image with wrapper + resize handle
 function buildImageHtml(src, width, height) {
@@ -403,7 +395,6 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
   const [importingDocx, setImportingDocx] = useState(false);
   const [isLastReply, setIsLastReply] = useState(false);
   const [isEditorEmpty, setIsEditorEmpty] = useState(true);
-  const [showSupportModal, setShowSupportModal] = useState(false);
   const [existingSupports, setExistingSupports] = useState([]);
   const [newSupportFiles, setNewSupportFiles] = useState([]);
 
@@ -1324,7 +1315,7 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
   const toggleHistory = () => { setShowHistory(!showHistory); setShowSupports(false); };
   const toggleSupports = () => { setShowSupports(!showSupports); setShowHistory(false); };
 
-  useEffect(() => { const handler = (e) => { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); if (canMakerEdit) handleSaveDraft(); } if (e.key === 'Escape' && !expanded && !showSupportModal) flushAndClose(); }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler); }, [canMakerEdit, expanded, title, showSupportModal]);
+  useEffect(() => { const handler = (e) => { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); if (canMakerEdit) handleSaveDraft(); } if (e.key === 'Escape' && !expanded) flushAndClose(); }; window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler); }, [canMakerEdit, expanded, title]);
 
   // Convert a base64 data URL to a Uint8Array for docx's ImageRun
   const dataUrlToUint8Array = (dataUrl) => {
@@ -1509,7 +1500,6 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
     return paragraphs;
   };
   const handleDownloadDocx = async () => { if (!canDownload) return showToast('⚠ Downloads only after approval'); try { const content = reply?.content_html || getCurrentContent(); if (!content || !content.trim()) return showToast('⚠ No content to download'); const paragraphs = htmlToDocxParagraphs(content); if (paragraphs.length === 0) paragraphs.push(new Paragraph({ children: [new TextRun('')] })); const doc = new Document({ sections: [{ properties: { page: { margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 } } }, children: paragraphs }] }); const blob = await Packer.toBlob(doc); saveAs(blob, `${(title || 'reply').replace(/[^a-z0-9]/gi, '_')}.docx`); showToast('✅ DOCX downloaded'); } catch (e) { showToast('⚠ Download failed'); } };
-  // const handleDownloadPdf = () => { if (!canDownload) return showToast('⚠ Downloads only after approval'); try { const content = reply?.content_html || getCurrentContent(); if (!content || !content.trim()) return showToast('⚠ No content to download'); const wrapper = document.createElement('div'); wrapper.style.fontFamily = "'Times New Roman', Times, serif"; wrapper.style.fontSize = '12pt'; wrapper.style.lineHeight = '1.5'; wrapper.style.color = '#1a1a2e'; wrapper.style.padding = '20px'; wrapper.style.background = '#fff'; wrapper.style.width = '700px'; wrapper.innerHTML = content; wrapper.querySelectorAll('table').forEach(t => { t.style.borderCollapse = 'collapse'; t.style.width = '100%'; }); wrapper.querySelectorAll('td, th').forEach(cell => { cell.style.border = '1px solid #333'; cell.style.padding = '4px 8px'; }); document.body.appendChild(wrapper); html2pdf().set({ margin: [0.8, 0.8, 0.8, 0.8], filename: `${(title || 'reply').replace(/[^a-z0-9]/gi, '_')}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true, scrollY: 0 }, jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' } }).from(wrapper).save().then(() => { document.body.removeChild(wrapper); showToast('✅ PDF downloaded'); }).catch(() => { if (wrapper.parentNode) document.body.removeChild(wrapper); showToast('⚠ PDF failed'); }); } catch { showToast('⚠ PDF failed'); } };
 
   const handleDownloadPdf = () => {
     if (!canDownload) return showToast('⚠ Downloads only after approval');
@@ -1751,8 +1741,8 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
       {toast && <div style={{ position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', background: C.ink, color: '#fff', padding: '10px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: '0 10px 30px rgba(0,0,0,0.25)', zIndex: 999999 }}>{toast}</div>}
       {showConfirmSend && <ConfirmDialog icon="📤" title="Send for Review?" message="Reply and attachments will be sent to checker." confirmLabel="Send" confirmColor={C.navyLight} onConfirm={handleSendForReview} onCancel={() => setShowConfirmSend(false)} />}
       {showConfirmDelete && <ConfirmDialog icon="🗑" title="Delete Draft?" message={`"${title || 'Untitled'}" and its attachments will be permanently deleted.`} confirmLabel="Delete" confirmColor={C.red} onConfirm={handleDeleteDraft} onCancel={() => setShowConfirmDelete(false)} />}
-      {showRejectModal && <RejectModal review={reply} onClose={() => setShowRejectModal(false)} onRejected={handleReject} />}
-      {showAcceptModal && <AcceptModal review={reply} onClose={() => setShowAcceptModal(false)} onAccepted={handleApprove} showEscalate={isAssignedChecker && !isCeoRole} />}
+      {showRejectModal && <RejectModal zIndex={2100} onClose={() => setShowRejectModal(false)} onRejected={handleReject} />}
+      {showAcceptModal && <AcceptModal zIndex={2100} onClose={() => setShowAcceptModal(false)} onAccepted={handleApprove} showEscalate={isAssignedChecker && !isCeoRole} />}
     </div>,
     document.body
   );
@@ -1789,9 +1779,16 @@ function HdrBtn({ children, onClick, title, active, badge, disabled, small }) {
   </button>;
 }
 function ZoomBtn({ children, onClick }) { return <button onClick={onClick} style={{ width: 20, height: 20, border: 'none', background: 'transparent', color: '#666', cursor: 'pointer', fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0, borderRadius: 3 }}>{children}</button>; }
+// Footer buttons use the app's shared .btn classes; the prop names are unchanged.
 function ActionBtn({ children, onClick, disabled, title, green, amber, navy, primary, danger, success }) {
-  const bg = primary ? `linear-gradient(135deg, ${C.navyLight}, ${C.blue})` : success ? `linear-gradient(135deg, ${C.green}, #0B5C43)` : 'transparent'; const color = primary || success ? '#fff' : danger ? C.red : navy ? C.navyLight : green ? C.green : amber ? C.amber : C.slate; const border = primary || success ? 'none' : danger ? `1.5px solid ${C.redBorder}` : navy ? `1.5px solid ${C.navyLight}` : green ? `1.5px solid ${C.green}` : amber ? `1.5px solid ${C.amber}` : '1px solid #ddd';
-  return <button onClick={disabled ? undefined : onClick} disabled={disabled} title={title} style={{ padding: '6px 14px', border, borderRadius: 5, background: disabled ? '#e5e7eb' : bg, color: disabled ? '#9ca3af' : color, fontSize: 11.5, fontWeight: 700, cursor: disabled ? 'not-allowed' : 'pointer', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 4, boxShadow: primary || success ? '0 2px 6px rgba(0,0,0,0.15)' : 'none', opacity: disabled ? 0.6 : 1 }}>{children}</button>;
+  const variant = primary || success ? 'btn-primary' : 'btn-secondary';
+  const color = danger ? C.red : green ? C.green : amber ? C.amber : navy ? C.navy : undefined;
+  return (
+    <button type="button" className={`btn ${variant}`} onClick={disabled ? undefined : onClick} disabled={disabled} title={title}
+      style={{ padding: '5px 12px', fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5, ...(color && !disabled ? { color, borderColor: color } : {}) }}>
+      {children}
+    </button>
+  );
 }
 function StatusBanner({ status, reply, isReviewMode, isAssignedChecker, isCeoRole }) {
   if (!reply || status === 'draft') return null;
@@ -1866,11 +1863,17 @@ function SupportsSidebar({ existingSupports, newSupportFiles, canEdit, onRemoveE
   );
 }
 
-function ConfirmDialog({ icon, title, message, confirmLabel, confirmColor, onConfirm, onCancel }) {
-  return createPortal(
-    <div onClick={(e) => e.target === e.currentTarget && onCancel()} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999999 }}>
-      <div style={{ background: '#fff', borderRadius: 10, padding: 24, width: 380, maxWidth: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', textAlign: 'center' }}><div style={{ fontSize: 36, marginBottom: 12 }}>{icon}</div><div style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e', marginBottom: 8 }}>{title}</div><div style={{ fontSize: 12.5, color: '#6b7280', lineHeight: 1.5, marginBottom: 20 }}>{message}</div><div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}><button onClick={onCancel} style={{ padding: '8px 18px', border: '1px solid #ddd', borderRadius: 6, background: '#fff', color: '#6b7280', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Cancel</button><button onClick={onConfirm} style={{ padding: '8px 20px', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 700, color: '#fff', background: confirmColor, boxShadow: `0 3px 12px ${confirmColor}40` }}>{confirmLabel}</button></div></div>
-    </div>,
-    document.body
+// Send / delete confirmations use the app's shared Modal (via LegalModals).
+function ConfirmDialog({ title, message, confirmLabel, confirmColor, onConfirm, onCancel }) {
+  return (
+    <ConfirmModal
+      title={title}
+      message={message}
+      confirmLabel={confirmLabel}
+      danger={confirmColor === C.red}
+      onConfirm={onConfirm}
+      onCancel={onCancel}
+      zIndex={2100}
+    />
   );
 }

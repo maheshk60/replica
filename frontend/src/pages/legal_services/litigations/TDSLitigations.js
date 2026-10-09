@@ -1,32 +1,24 @@
-// TDSLitigations.js — Thin wrapper using LitigationJobListView
+// TDSLitigations.js — TDS litigation job list (route page).
+// Title, API, paths and the New Case form all come from LITIGATION_TYPES.
 
 import LitigationJobListView from '../LitigationJobListView';
-import { api } from '../../../services/api';
-import TDSCaseModal from './TDSCaseModal';
+import { LITIGATION_TYPES } from '../LegalModals';
 
-/* ─── LOCAL API DEFINITIONS (used only by this file) ─── */
-const tdsLitigationApi = {
-  get:     (params)    => api.get('legal-services/tds-litigations/', { params }),
-  getById: (id)        => api.get(`legal-services/tds-litigations/${id}/`),
-  create:  (data)      => api.post('legal-services/tds-litigations/', data),
-  update:  (id, data)  => api.put(`legal-services/tds-litigations/${id}/`, data),
-  patch:   (id, data)  => api.patch(`legal-services/tds-litigations/${id}/`, data),
-  delete:  (id)        => api.delete(`legal-services/tds-litigations/${id}/`),
-};
+const T = LITIGATION_TYPES['tds'];
 
 export default function TDSLitigations() {
   return (
     <LitigationJobListView
-      title="TDS Litigations"
-      subtitle="Tax Deducted at Source case tracking"
-      api={tdsLitigationApi}
-      CaseModal={TDSCaseModal}
-      caseType="tds-litigations"
+      title={T.title}
+      subtitle={T.listSubtitle}
+      api={T.api}
+      CaseModal={T.CaseModal}
+      caseType={T.caseType}
       breadcrumbs={[
         { label: 'Litigations', path: '/legal-services/litigations' },
-        { label: 'Dashboard', path: '/legal-services/litigations/tds' },
+        { label: 'Dashboard', path: T.dashboardPath },
       ]}
-      clientPath={(c) => `/legal-services/clients/${c.client}?type=tds&caseId=${c.id}`}
+      clientPath={T.clientPath}
     />
   );
-}   
+}

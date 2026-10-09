@@ -64,6 +64,7 @@ class TDSLitigationViewSet(viewsets.ModelViewSet):
             return qs
         return qs.filter(Q(makers=user) | Q(checkers=user)).distinct()
 
+
     @action(detail=True, methods=['post'], url_path='assign-mc')
     def assign_mc(self, request, pk=None):
         case = self.get_object()
@@ -78,6 +79,24 @@ class TDSLitigationViewSet(viewsets.ModelViewSet):
             return Response({'error': 'A user cannot be both maker and checker.'}, status=400)
 
         la.assign_makers_checkers(case, maker_ids, checker_ids, 'tds', request.user)
+        case.refresh_from_db()
+
+        # Build human-readable sentence
+        m_list = [u.get_full_name() or u.email for u in case.makers.all()]
+        c_list = [u.get_full_name() or u.email for u in case.checkers.all()]
+        parts = []
+        if m_list:
+            parts.append(f"{' and '.join(m_list)} as maker{'s' if len(m_list) > 1 else ''}")
+        if c_list:
+            parts.append(f"{' and '.join(c_list)} as checker{'s' if len(c_list) > 1 else ''}")
+        sentence = "Assigned " + " and ".join(parts) if parts else "Cleared makers and checkers"
+
+        from .utils import log_event
+        log_event(
+            client_id=case.client_id, litigation_type='tds', job_id=case.id,
+            event_type='assignment', title=sentence, user=request.user,
+            new_values={'summary': sentence}
+        )
         return Response(self.get_serializer(case).data)
 
 
@@ -108,6 +127,7 @@ class IncomeTaxLitigationViewSet(viewsets.ModelViewSet):
             return qs
         return qs.filter(Q(makers=user) | Q(checkers=user)).distinct()
 
+
     @action(detail=True, methods=['post'], url_path='assign-mc')
     def assign_mc(self, request, pk=None):
         case = self.get_object()
@@ -122,6 +142,24 @@ class IncomeTaxLitigationViewSet(viewsets.ModelViewSet):
             return Response({'error': 'A user cannot be both maker and checker.'}, status=400)
 
         la.assign_makers_checkers(case, maker_ids, checker_ids, 'income-tax', request.user)
+        case.refresh_from_db()
+
+        # Build human-readable sentence
+        m_list = [u.get_full_name() or u.email for u in case.makers.all()]
+        c_list = [u.get_full_name() or u.email for u in case.checkers.all()]
+        parts = []
+        if m_list:
+            parts.append(f"{' and '.join(m_list)} as maker{'s' if len(m_list) > 1 else ''}")
+        if c_list:
+            parts.append(f"{' and '.join(c_list)} as checker{'s' if len(c_list) > 1 else ''}")
+        sentence = "Assigned " + " and ".join(parts) if parts else "Cleared makers and checkers"
+
+        from .utils import log_event
+        log_event(
+            client_id=case.client_id, litigation_type='income-tax', job_id=case.id,
+            event_type='assignment', title=sentence, user=request.user,
+            new_values={'summary': sentence}
+        )
         return Response(self.get_serializer(case).data)
 
 
@@ -474,6 +512,8 @@ class LegalClientDetailView(APIView):
                 TDSLitigation.objects.filter(client=client).filter(Q(makers=user) | Q(checkers=user)).exists()
                 or
                 IncomeTaxLitigation.objects.filter(client=client).filter(Q(makers=user) | Q(checkers=user)).exists()
+                or
+                MCACase.objects.filter(client=client).filter(Q(makers=user) | Q(checkers=user)).exists()
             )
             if not has_access:
                 return Response({'error': 'Not authorized'}, status=403)
@@ -687,6 +727,26 @@ class CaseNoticeViewSet(viewsets.ModelViewSet):
         if count == 0:
             return Response({'error': 'No draft documents to submit.'}, status=400)
 
+        return Response(self.get_serializer(notice).data)
+
+    @action(detail=True, methods=['post'], url_path='extensions')
+    def add_extension(self, request, pk=None):
+        notice = self.get_object()
+        user = request.user
+
+        if not (is_case_maker(notice.court_case, user) or is_admin_role(user)):
+            return Response({'error': 'Only Maker or Admin can add an extension.'}, status=403)
+
+        new_date = request.data.get('extended_due_date')
+        notes = request.data.get('notes')
+        
+        # ✅ USE getlist() FOR MULTIPLE FILES
+        reply_files = request.FILES.getlist('reply_files')
+        ack_files = request.FILES.getlist('ack_files')
+
+        la.submit_notice_extension(notice, new_date, notes, reply_files, ack_files, user)
+        
+        notice.refresh_from_db()
         return Response(self.get_serializer(notice).data)
 
 
@@ -1150,6 +1210,24 @@ class MCACaseViewSet(viewsets.ModelViewSet):
             return Response({'error': 'A user cannot be both maker and checker.'}, status=400)
 
         ma.assign_mca_makers_checkers(case, maker_ids, checker_ids, request.user)
+        case.refresh_from_db()
+
+        # Build human-readable sentence
+        m_list = [u.get_full_name() or u.email for u in case.makers.all()]
+        c_list = [u.get_full_name() or u.email for u in case.checkers.all()]
+        parts = []
+        if m_list:
+            parts.append(f"{' and '.join(m_list)} as maker{'s' if len(m_list) > 1 else ''}")
+        if c_list:
+            parts.append(f"{' and '.join(c_list)} as checker{'s' if len(c_list) > 1 else ''}")
+        sentence = "Assigned " + " and ".join(parts) if parts else "Cleared makers and checkers"
+
+        from .utils import log_event
+        log_event(
+            client_id=case.client_id, litigation_type='mca', job_id=case.id,
+            event_type='assignment', title=sentence, user=request.user,
+            new_values={'summary': sentence}
+        )
         return Response(self.get_serializer(case).data)
 
 class MCAFilingViewSet(viewsets.ModelViewSet):
@@ -1300,6 +1378,138 @@ class MCAFilingViewSet(viewsets.ModelViewSet):
         filing.refresh_from_db()
         return Response(self.get_serializer(filing).data)
 
+    @action(detail=True, methods=['post'], url_path='submit-cert-for-review')
+    def submit_cert_for_review(self, request, pk=None):
+        filing = self.get_object()
+        user = request.user
+
+        if not (mh.is_mca_case_maker(filing.mca_case, user) or is_admin_role(user)):
+            return Response({'error': 'Only Maker can submit certificate.'}, status=403)
+
+        if filing.mca_case.status not in ('open', 'under_review'):
+            return Response({'error': 'Certificate review only when case is Open.'}, status=400)
+
+        certs = filing.documents.filter(
+            doc_type='mca_approval_cert',
+            review_status='draft',
+        )
+        count = certs.count()
+        if count == 0:
+            return Response({'error': 'No draft certificate to submit. Upload first.'}, status=400)
+
+        certs.update(review_status='pending')
+        mh.update_filing_status_from_workflow(filing)
+        mh.recompute_mca_case_status(filing.mca_case)
+
+        from .utils import log_event
+        log_event(
+            client_id=filing.mca_case.client_id,
+            litigation_type='mca',
+            job_id=filing.mca_case.id,
+            event_type='mca_docs_submitted',
+            title='Approval certificate submitted for review',
+            user=user,
+        )
+
+        filing.refresh_from_db()
+        return Response(self.get_serializer(filing).data)
+
+
+
+    @action(detail=True,methods=['post'],url_path='submit-closure-for-review',parser_classes=[MultiPartParser, FormParser, JSONParser],)
+    def submit_closure_for_review(self, request, pk=None):
+        from django.core.files.base import ContentFile
+        from .models import MCAFilingDocument
+        from .utils import log_event
+
+        filing = self.get_object()
+        user = request.user
+
+        if not mh.is_mca_case_maker(filing.mca_case, user):
+            return Response({'error': 'Only assigned Maker can submit.'}, status=403)
+
+        if filing.mca_case.status == 'closed':
+            return Response({'error': 'Case already closed.'}, status=400)
+
+        if filing.mca_case.status != 'open':
+            return Response({'error': 'Case must be Open.'}, status=400)
+
+        confirmed = str(request.data.get('confirmed', '')).lower() in ('1', 'true', 'yes', 'on')
+        if not confirmed:
+            return Response({'error': 'Please confirm the checkbox.'}, status=400)
+
+        if filing.documents.filter(
+            doc_type='mca_approval_cert',
+            review_status__in=['pending', 'escalated'],
+        ).exists():
+            return Response({'error': 'Case Closure already pending review.'}, status=400)
+
+        note = (request.data.get('note') or '').strip()
+        upload = request.FILES.get('file')
+
+        # clear old draft/rejected closure docs
+        for old in filing.documents.filter(
+            doc_type='mca_approval_cert',
+            review_status__in=['draft', 'rejected'],
+        ):
+            if old.file:
+                try:
+                    old.file.delete(save=False)
+                except Exception:
+                    pass
+            old.delete()
+
+        if upload:
+            doc = MCAFilingDocument(
+                filing=filing,
+                doc_type='mca_approval_cert',
+                review_status='pending',
+                uploaded_by=user,
+                file_name=upload.name,
+            )
+            doc.file = upload
+            doc.save()
+            has_file = True
+        else:
+            # no file → still a pending row so Review can show a text card
+            doc = MCAFilingDocument(
+                filing=filing,
+                doc_type='mca_approval_cert',
+                review_status='pending',
+                uploaded_by=user,
+                file_name='Case Closure (no attachment)',
+            )
+            doc.file.save(
+                f'case-closure-{filing.id}.txt',
+                ContentFile(b'Case Closure request without attachment\n'),
+                save=False,
+            )
+            doc.save()
+            has_file = False
+
+        log_event(
+            client_id=filing.mca_case.client_id,
+            litigation_type='mca',
+            job_id=filing.mca_case.id,
+            event_type='mca_docs_submitted',
+            title='Case Closure submitted for review',
+            user=user,
+            new_values={
+                'doc_type': 'mca_approval_cert',
+                'label': 'Case Closure',
+                'has_attachment': has_file,
+                'file_name': doc.file_name if has_file else None,
+                'note': note,
+            },
+        )
+
+        mh.update_filing_status_from_workflow(filing)
+        mh.recompute_mca_case_status(filing.mca_case, user=user)
+
+        filing.refresh_from_db()
+        return Response(self.get_serializer(filing).data)
+
+
 
 
 class MCAFilingDocumentViewSet(viewsets.ModelViewSet):
@@ -1322,13 +1532,11 @@ class MCAFilingDocumentViewSet(viewsets.ModelViewSet):
         doc_type = serializer.validated_data.get('doc_type', 'pending_draft')
         parent_draft = self.request.data.get('parent_draft')
 
-        # SRN must start as draft so Maker can click "Send SRN for Review"
+        # Do NOT auto-pending certificates — Maker must click Send for Review
         auto_pending_types = [
-            'mca_approval_cert',
             'mca_rejection_notice',
             'resubmission_notice',
         ]
-        # DO NOT put srn_receipt / challan / acknowledgment here
         review_status = 'pending' if doc_type in auto_pending_types else 'draft'
 
         instance = serializer.save(
@@ -1338,16 +1546,29 @@ class MCAFilingDocumentViewSet(viewsets.ModelViewSet):
         )
         ma.log_mca_doc_created(instance, user)
 
+
     def perform_destroy(self, instance):
         from rest_framework.exceptions import PermissionDenied
         user = self.request.user
 
-        # Only draft or rejected + own uploads can be deleted
+        # Maker can delete own draft OR rejected docs
         if instance.review_status not in ('draft', 'rejected') or instance.uploaded_by != user:
             if not is_admin_role(user):
                 raise PermissionDenied('Cannot delete this document.')
 
-        ma.delete_mca_doc_cascade(instance, user)
+        instance.is_deleted = True
+        instance.save(update_fields=['is_deleted'])
+
+        from .utils import log_event
+        log_event(
+            client_id=instance.filing.mca_case.client_id,
+            litigation_type='mca',
+            job_id=instance.filing.mca_case.id,
+            event_type='doc_delete',
+            title='Document removed from Activity',
+            user=user,
+            new_values={'file_name': instance.file_name, 'doc_type': instance.doc_type},
+        )
 
 
     @action(detail=True, methods=['post'], url_path='approve')
@@ -1365,17 +1586,37 @@ class MCAFilingDocumentViewSet(viewsets.ModelViewSet):
         else:
             return Response({'error': 'Cannot approve this document.'}, status=400)
 
-        # Route by doc_type
+        from .utils import log_event
+
         if doc.doc_type in ('pending_draft', 'draft_form'):
             ma.approve_mca_draft(doc, user)
-        elif doc.doc_type == 'srn_receipt':
+            log_event(
+                client_id=filing.mca_case.client_id, litigation_type='mca', job_id=filing.mca_case.id,
+                event_type='mca_docs_approved', title='Draft Approved', user=user,
+                new_values={'file_name': doc.file_name}
+            )
+        elif doc.doc_type in ('supporting_doc', 'pending_support'):
             ma.approve_mca_srn(doc, user)
+            log_event(
+                client_id=filing.mca_case.client_id, litigation_type='mca', job_id=filing.mca_case.id,
+                event_type='mca_srn_approved', title='Supporting Document Approved', user=user,
+                new_values={'file_name': doc.file_name}
+            )
         else:
+            # Case Closure Approval
             doc.review_status = 'approved'
             doc.reviewed_by = user
             doc.reviewed_at = timezone.now()
             doc.save()
             mh.update_filing_status_from_workflow(filing)
+            mh.recompute_mca_case_status(filing.mca_case, user=user)
+
+            has_real_file = bool(doc.file_name and 'no attachment' not in doc.file_name.lower())
+            log_event(
+                client_id=filing.mca_case.client_id, litigation_type='mca', job_id=filing.mca_case.id,
+                event_type='mca_docs_approved', title='Case Closure approved', user=user,
+                new_values={'file_name': doc.file_name if has_real_file else None, 'status': 'closed'},
+            )
 
         return Response(MCAFilingDocumentSerializer(doc, context={'request': request}).data)
 
@@ -1398,17 +1639,33 @@ class MCAFilingDocumentViewSet(viewsets.ModelViewSet):
         else:
             return Response({'error': 'Cannot reject this document.'}, status=400)
 
+        # Actions save review_note on THIS doc + single audit log
         if doc.doc_type in ('pending_draft', 'draft_form'):
             ma.reject_mca_draft(doc, reason, user)
-        elif doc.doc_type == 'srn_receipt':
+        elif doc.doc_type in (
+            'supporting_doc', 'pending_support',
+            'srn_receipt', 'challan', 'acknowledgment',
+        ):
             ma.reject_mca_srn(doc, reason, user)
         else:
+            from django.utils import timezone
+            from .utils import log_event
             doc.review_status = 'rejected'
             doc.review_note = reason
             doc.reviewed_by = user
             doc.reviewed_at = timezone.now()
             doc.save()
             mh.update_filing_status_from_workflow(filing)
+            mh.recompute_mca_case_status(filing.mca_case, user=user)
+            log_event(
+                client_id=filing.mca_case.client_id,
+                litigation_type='mca',
+                job_id=filing.mca_case.id,
+                event_type='mca_docs_rejected',
+                title='Case Closure rejected',
+                user=user,
+                new_values={'rejection_reason': reason, 'file_name': doc.file_name},
+            )
 
         return Response(MCAFilingDocumentSerializer(doc, context={'request': request}).data)
 
@@ -1420,18 +1677,38 @@ class MCAFilingDocumentViewSet(viewsets.ModelViewSet):
 
         if not mh.is_mca_case_checker(filing.mca_case, user):
             return Response({'error': 'Only Assigned Checker can move to CEO.'}, status=403)
-        
         if doc.review_status != 'pending':
             return Response({'error': 'Only pending documents can be escalated.'}, status=400)
 
+        from .utils import log_event
+
         if doc.doc_type in ('pending_draft', 'draft_form'):
             ma.escalate_mca_draft(doc, user)
-        elif doc.doc_type == 'srn_receipt':
+            log_event(
+                client_id=filing.mca_case.client_id, litigation_type='mca', job_id=filing.mca_case.id,
+                event_type='mca_docs_escalated', title='Draft moved to CEO', user=user,
+                new_values={'file_name': doc.file_name}
+            )
+        elif doc.doc_type in ('supporting_doc', 'pending_support'):
             ma.escalate_mca_srn(doc, user)
+            log_event(
+                client_id=filing.mca_case.client_id, litigation_type='mca', job_id=filing.mca_case.id,
+                event_type='mca_srn_escalated', title='Supporting Document moved to CEO', user=user,
+                new_values={'file_name': doc.file_name}
+            )
         else:
+            # Case Closure Escalation
             doc.review_status = 'escalated'
             doc.save(update_fields=['review_status'])
             mh.update_filing_status_from_workflow(filing)
+            mh.recompute_mca_case_status(filing.mca_case, user=user)
+
+            log_event(
+                client_id=filing.mca_case.client_id, litigation_type='mca', job_id=filing.mca_case.id,
+                event_type='mca_docs_escalated', title='Case Closure moved to CEO', user=user,
+            )
 
         return Response(MCAFilingDocumentSerializer(doc, context={'request': request}).data)
+
+
 

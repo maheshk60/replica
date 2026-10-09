@@ -6,6 +6,7 @@ import { ConfigProvider, App as AntdApp } from 'antd';
 import 'antd/dist/reset.css';
 
 import './index.css';
+import './theme/theme.css';
 import './App.css';
 
 import Login from './pages/Login';
@@ -25,28 +26,16 @@ const ComingSoon           = lazy(() => import('./pages/ComingSoon'));
 
 
 // Lazy imports for legal services pages
-const LegalServicesHome = lazy(() =>
-  import('./pages/legal_services/legal_service')
-);
-const Litigations = lazy(() =>
-  import('./pages/legal_services/litigations/Litigations')
-);
+const LegalServicesHome = lazy(() =>  import('./pages/legal_services/legal_service'));
+const Litigations = lazy(() => import('./pages/legal_services/litigations/Litigations'));
 
 // Dashboard pages
-const TDSDashboard = lazy(() =>
-  import('./pages/legal_services/litigations/TDSDashboard')
-);
-const IncomeTaxDashboard = lazy(() =>
-  import('./pages/legal_services/litigations/IncomeTaxDashboard')
-);
+const TDSDashboard = lazy(() => import('./pages/legal_services/litigations/TDSDashboard'));
+const IncomeTaxDashboard = lazy(() => import('./pages/legal_services/litigations/IncomeTaxDashboard'));
 
 // Job list pages
-const TDSLitigations = lazy(() =>
-  import('./pages/legal_services/litigations/TDSLitigations')
-);
-const IncomeTaxLitigations = lazy(() =>
-  import('./pages/legal_services/litigations/IncomeTaxLitigations')
-);
+const TDSLitigations = lazy(() => import('./pages/legal_services/litigations/TDSLitigations'));
+const IncomeTaxLitigations = lazy(() => import('./pages/legal_services/litigations/IncomeTaxLitigations'));
 
 
 
@@ -55,6 +44,12 @@ const IncomeTaxLitigations = lazy(() =>
 const MCAMainSelector = lazy(() =>
   import('./pages/legal_services/MCA/MCAMainSelector')
 );
+
+const MCASubServiceSelector = lazy(() =>
+  import('./pages/legal_services/MCA/MCASubServiceSelector')
+);
+
+
 const MCACompanyDashboard = lazy(() =>
   import('./pages/legal_services/MCA/MCACompanyDashboard')
 );
@@ -246,6 +241,7 @@ function App() {
 
 
 
+                    
 
 
 
@@ -253,11 +249,8 @@ function App() {
 
 
 
-
-
-
-                    {/* ═══════════════ MCA ═══════════════ */}
-                    {/* Company workspace */}
+                    {/* ═══════════════ MCA COMPANY ═══════════════ */}
+                    {/* Workspace */}
                     <Route
                       path="/legal-services/mca/company/clients/:clientId"
                       element={
@@ -269,7 +262,7 @@ function App() {
                       }
                     />
 
-                    {/* Company job list */}
+                    {/* Job list */}
                     <Route
                       path="/legal-services/mca/company/jobs"
                       element={
@@ -281,9 +274,9 @@ function App() {
                       }
                     />
 
-                    {/* Company dashboard */}
+                    {/* NEW: Company Dashboard (Filtered by sub-service) */}
                     <Route
-                      path="/legal-services/mca/company"
+                      path="/legal-services/mca/company/dashboard"
                       element={
                         <Suspense fallback={<PageLoader />}>
                           <PrivateRoute allowedRoles={['Admin', 'HR', 'Founder', 'Manager', 'Team Lead', 'Employee']}>
@@ -293,7 +286,21 @@ function App() {
                       }
                     />
 
-                    {/* LLP workspace */}
+                    {/* NEW: Company Sub-Service Selector (e.g. AOC-4, MGT-7) */}
+                    <Route
+                      path="/legal-services/mca/company"
+                      element={
+                        <Suspense fallback={<PageLoader />}>
+                          <PrivateRoute allowedRoles={['Admin', 'HR', 'Founder', 'Manager', 'Team Lead', 'Employee']}>
+                            <MCASubServiceSelector mainService="company" />
+                          </PrivateRoute>
+                        </Suspense>
+                      }
+                    />
+
+
+                    {/* ═══════════════ MCA LLP ═══════════════ */}
+                    {/* Workspace */}
                     <Route
                       path="/legal-services/mca/llp/clients/:clientId"
                       element={
@@ -305,7 +312,7 @@ function App() {
                       }
                     />
 
-                    {/* LLP job list */}
+                    {/* Job list */}
                     <Route
                       path="/legal-services/mca/llp/jobs"
                       element={
@@ -317,13 +324,25 @@ function App() {
                       }
                     />
 
-                    {/* LLP dashboard */}
+                    {/* NEW: LLP Dashboard (Filtered by sub-service) */}
+                    <Route
+                      path="/legal-services/mca/llp/dashboard"
+                      element={
+                        <Suspense fallback={<PageLoader />}>
+                          <PrivateRoute allowedRoles={['Admin', 'HR', 'Founder', 'Manager', 'Team Lead', 'Employee']}>
+                            <MCALLPDashboard />
+                          </PrivateRoute>
+                        </Suspense>
+                      }
+                    />
+
+                    {/* NEW: LLP Sub-Service Selector (e.g. Form 11, Form 8) */}
                     <Route
                       path="/legal-services/mca/llp"
                       element={
                         <Suspense fallback={<PageLoader />}>
                           <PrivateRoute allowedRoles={['Admin', 'HR', 'Founder', 'Manager', 'Team Lead', 'Employee']}>
-                            <MCALLPDashboard />
+                            <MCASubServiceSelector mainService="llp" />
                           </PrivateRoute>
                         </Suspense>
                       }
@@ -340,6 +359,13 @@ function App() {
                         </Suspense>
                       }
                     />
+
+
+
+
+
+
+
 
 
 

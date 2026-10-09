@@ -1,1269 +1,965 @@
+// // ReviewTabV2.js — Review tab: active checker reviews (cards) + completed
+// // history (shared Table; click a row for details).
+
+// import React, { useState, useEffect, useCallback, useMemo } from 'react';
+// import { Select } from 'antd';
+// import { useAuth } from '../../contexts/AuthContext';
+// import { RejectModal, AcceptModal, NoticeDetailModal } from './LegalModals';
+// import ReplyEditorModal from './ReplyEditorModal';
+// import {
+//   Modal, Table, P, PL, MUT, INK, GR, RED, REDL, PUR, BRD,
+//   REVIEW_STATUS, CLOSURE_DOC_TYPES, StatusPill, FileChip, EmptyState, ErrorBanner, Segmented, SectionTitle,
+//   legalApi, toList, isInList, fmtDateTime, fmtRelativeTime, openFile, downloadDoc,fmtDate
+// } from './legalCommon';
+
+// const ACTION_META = {
+//   summary:     { label: 'Case Summary Update', icon: '📝' },
+//   notice_edit: { label: 'Notice Info Update',  icon: '✎' },
+//   extension:   { label: 'Due Date Extension',  icon: '📅' },
+//   notice:      { label: 'Notice Review',       icon: '📋' },
+//   reply:       { label: 'Reply (Editor)',      icon: '📄' },
+//   uploaded_reply_bundle: { label: 'Uploaded Reply', icon: '📄' },
+//   ack:         { label: 'Acknowledgment',      icon: '📥' },
+//   closure:     { label: 'Case Closure Request', icon: '🔒' },
+// };
+
+// const TYPE_FILTERS = [
+//   { key: 'all', label: 'All types', match: () => true },
+//   { key: 'notice_edit', label: 'Notice info', match: (r) => r.type === 'notice_edit' },
+//   { key: 'extension', label: 'Extensions', match: (r) => r.type === 'extension' },
+//   { key: 'reply', label: 'Reply', match: (r) => r.type === 'reply' || r.type === 'uploaded_reply_bundle' },
+//   { key: 'ack', label: 'Acknowledgment', match: (r) => r.type === 'ack' },
+//   { key: 'summary', label: 'Summary', match: (r) => r.type === 'summary' },
+//   { key: 'closure', label: 'Closure', match: (r) => r.type === 'closure' },
+// ];
+
+// const itemTitle = (item) => ({
+//   reply: `Reply — ${item.title || 'Untitled'}`,
+//   uploaded_reply_bundle: `Uploaded Reply — ${item.file_name}`,
+//   ack: `Acknowledgment — ${item.file_name}`,
+//   notice_edit: `Notice Info — DIN ${item.payload?.notice_din || '—'}`,
+//   notice: `Notice — DIN ${item.din_number || '—'}`,
+// }[item.type] || ACTION_META[item.type]?.label);
+
+// // ══════════════════════════════════════════════════════════════════
+// // Item body — shared by active cards and the history detail modal
+// // ══════════════════════════════════════════════════════════════════
+// function Box({ label, children }) {
+//   return (
+//     <div style={{ padding: '10px 12px', background: 'var(--color-slate-50)', border: `1px solid ${BRD}`, borderRadius: 'var(--radius-md)' }}>
+//       {label && <div style={{ fontSize: 11, fontWeight: 700, color: MUT, marginBottom: 6 }}>{label}</div>}
+//       {children}
+//     </div>
+//   );
+// }
+
+// function FieldDiff({ fields, oldValues, newValues }) {
+//   const fmt = (v) => (v === null || v === undefined || v === '' ? '—' : String(v));
+//   return (
+//     <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+//       {fields.map((f) => (
+//         <div key={f} style={{ display: 'flex', gap: 8, fontSize: 12 }}>
+//           <span style={{ minWidth: 110, fontWeight: 600, color: MUT }}>{f.replace(/_/g, ' ')}</span>
+//           <span style={{ color: RED, textDecoration: 'line-through' }}>{fmt(oldValues?.[f])}</span>
+//           <span style={{ color: MUT }}>→</span>
+//           <span style={{ color: GR, fontWeight: 700 }}>{fmt(newValues?.[f])}</span>
+//         </div>
+//       ))}
+//     </div>
+//   );
+// }
+
+// function ItemBody({ item }) {
+//   if (item.type === 'summary') {
+//     return <Box label="Summary text"><div style={{ fontSize: 13, color: INK, whiteSpace: 'pre-wrap' }}>{item.payload?.description || '(empty)'}</div></Box>;
+//   }
+//   if (item.type === 'notice_edit') {
+//     return <Box label="Changes requested"><FieldDiff fields={item.payload?.changed_fields || []} oldValues={item.payload?.old_values} newValues={item.payload?.new_values} /></Box>;
+//   }
+//   if (item.type === 'uploaded_reply_bundle') {
+//     return (
+//       <Box>
+//         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+//           <div>
+//             <div style={{ fontSize: 11, fontWeight: 700, color: MUT, marginBottom: 6 }}>Main reply</div>
+//             <FileChip name={item.file_name} onOpen={() => openFile(item.file_url)} onDownload={() => downloadDoc(item)} />
+//           </div>
+//           <div>
+//             <div style={{ fontSize: 11, fontWeight: 700, color: MUT, marginBottom: 6 }}>Supporting docs ({item.support_docs?.length || 0})</div>
+//             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+//               {item.support_docs?.length ? item.support_docs.map((sd) => (
+//                 <FileChip key={sd.id} name={sd.file_name} icon="📎" onOpen={() => openFile(sd)} onDownload={() => downloadDoc(sd)} />
+//               )) : <span style={{ fontSize: 12, color: MUT, fontStyle: 'italic' }}>None</span>}
+//             </div>
+//           </div>
+//         </div>
+//       </Box>
+//     );
+//   }
+//   if (item.type === 'ack') {
+//     return <FileChip name={item.file_name} icon="📥" onOpen={() => openFile(item.file_url)} onDownload={() => downloadDoc(item)} width={340} />;
+//   }
+//   if (item.type === 'closure') {
+//     return (
+//       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+//         {CLOSURE_DOC_TYPES.map((t) => {
+//           const doc = item.closure_documents?.find((d) => d.doc_type === t.key);
+//           return doc && (
+//             <div key={t.key}>
+//               <div style={{ fontSize: 11, fontWeight: 700, color: MUT, marginBottom: 4 }}>{t.label}</div>
+//               <FileChip name={doc.file_name} onOpen={() => openFile(doc)} onDownload={() => downloadDoc(doc)} />
+//             </div>
+//           );
+//         })}
+//       </div>
+//     );
+//   }
+
+//   if (item.type === 'extension') {
+//     return (
+//       <Box label="Extension Request">
+//         <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>
+//           <div><span style={{ fontSize: 11, color: MUT }}>Old Due Date:</span> <span style={{ fontSize: 13, textDecoration: 'line-through', color: RED, fontWeight: 600 }}>{fmtDate(item.payload?.old_date) || '—'}</span></div>
+//           <div><span style={{ fontSize: 11, color: MUT }}>Extended To:</span> <span style={{ fontSize: 13, fontWeight: 800, color: P }}>{fmtDate(item.payload?.new_date)}</span></div>
+//         </div>
+//         {item.payload?.notes && <div style={{ fontSize: 12, color: INK, fontStyle: 'italic', marginBottom: 12 }}>"{item.payload.notes}"</div>}
+//         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+//           <div>
+//             <div style={{ fontSize: 11, fontWeight: 700, color: MUT, marginBottom: 6 }}>Reply Files ({item.payload?.reply_docs?.length || 0})</div>
+//             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+//               {item.payload?.reply_docs?.map((d) => <FileChip key={d.id} name={d.file_name} icon="📄" onOpen={() => openFile(d)} onDownload={() => downloadDoc(d)} />)}
+//             </div>
+//           </div>
+//           <div>
+//             <div style={{ fontSize: 11, fontWeight: 700, color: MUT, marginBottom: 6 }}>Ack Files ({item.payload?.ack_docs?.length || 0})</div>
+//             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+//               {item.payload?.ack_docs?.map((d) => <FileChip key={d.id} name={d.file_name} icon="📥" onOpen={() => openFile(d)} onDownload={() => downloadDoc(d)} />)}
+//             </div>
+//           </div>
+//         </div>
+//       </Box>
+//     );
+//   }
+
+
+
+//   return null;
+// }
+
+// function RejectionNote({ item }) {
+//   if (item.status !== 'rejected' || !item.review_note) return null;
+//   return (
+//     <div style={{ marginTop: 10, padding: '8px 12px', background: REDL, border: '1px solid #FECACA', borderRadius: 'var(--radius-md)', fontSize: 12, color: RED }}>
+//       <b>Rejection reason:</b> {item.review_note}
+//     </div>
+//   );
+// }
+
+// // One card for every kind of active review.
+// function ReviewCard({ item, busy, canDecide, onApprove, onReject, openLabel, onOpen, approveLabel = '✓ Approve' }) {
+//   const meta = ACTION_META[item.type];
+//   const accent = item.status === 'escalated' ? PUR : P;
+//   return (
+//     <div className="card" style={{ padding: 14, borderLeft: `4px solid ${accent}` }}>
+//       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+//         <div style={{ width: 32, height: 32, borderRadius: 'var(--radius-md)', background: PL, color: P, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, flexShrink: 0 }}>
+//           {meta.icon}
+//         </div>
+//         <div style={{ flex: 1, minWidth: 0 }}>
+//           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+//             <span style={{ fontSize: 13, fontWeight: 700, color: INK }}>{meta.label}</span>
+//             {item.notice?.din_number && <span className="tag-chip mono">DIN {item.notice.din_number}</span>}
+//             <StatusPill status={item.status} map={REVIEW_STATUS} />
+//           </div>
+//           <div style={{ fontSize: 11.5, color: MUT, marginTop: 2 }}>
+//             Submitted by <b style={{ color: 'var(--color-slate-600)' }}>{item.submitted_by_name || 'Unknown'}</b>
+//             {item.submitted_at && ` · ${fmtDateTime(item.submitted_at)}`}
+//           </div>
+//         </div>
+//         {onOpen && <button className="btn btn-primary" onClick={onOpen}>{openLabel}</button>}
+//       </div>
+
+//       <ItemBody item={item} />
+//       <RejectionNote item={item} />
+
+//       {canDecide && (
+//         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
+//           <button className="btn btn-secondary" style={{ color: RED }} onClick={onReject} disabled={busy}>Reject</button>
+//           <button className="btn btn-primary" onClick={onApprove} disabled={busy}>{busy ? 'Working…' : approveLabel}</button>
+//         </div>
+//       )}
+//     </div>
+//   );
+// }
+
+// // ══════════════════════════════════════════════════════════════════
+// // MAIN
+// // ══════════════════════════════════════════════════════════════════
+// export default function ReviewTabV2({ courtCaseId, refreshTick, caseData, onUpdated }) {
+//   const { user } = useAuth();
+
+//   const [data, setData] = useState({ reviews: [], notices: [], replies: [], closureCase: null });
+//   const [loading, setLoading] = useState(true);
+//   const [error, setError] = useState(null);
+//   const [busyId, setBusyId] = useState(null);
+
+//   const [rejectTarget, setRejectTarget] = useState(null);
+//   const [acceptTarget, setAcceptTarget] = useState(null);
+//   const [noticeId, setNoticeId] = useState(null);
+//   const [replyModal, setReplyModal] = useState(null);
+//   const [historyItem, setHistoryItem] = useState(null);
+//   const [historyStatus, setHistoryStatus] = useState('all');
+//   const [historyType, setHistoryType] = useState('all');
+
+//   const isFounder = user?.role === 'Founder';
+//   const isHighAdmin = ['Admin', 'Founder'].includes(user?.role);
+//   const isMaker = isInList(caseData?.makers, user);
+//   const isChecker = isInList(caseData?.checkers, user);
+
+//   const load = useCallback(async () => {
+//     if (!courtCaseId) return;
+//     setLoading(true); setError(null);
+//     try {
+//       const [rRes, nRes, cRes] = await Promise.all([
+//         legalApi.reviews.list({ court_case: courtCaseId }),
+//         legalApi.notices.list({ court_case: courtCaseId }),
+//         legalApi.courtCases.get(courtCaseId),
+//       ]);
+//       const notices = toList(nRes);
+//       const replyLists = await Promise.all(notices.map((n) =>
+//         legalApi.replies.list({ notice: n.id }).then((r) => toList(r).map((x) => ({ ...x, notice: n }))).catch(() => [])
+//       ));
+//       setData({
+//         reviews: toList(rRes).filter((r) => r.action_type === 'summary' || r.action_type === 'notice_edit'),
+//         notices,
+//         replies: replyLists.flat().filter((r) => r.status !== 'draft'),
+//         closureCase: cRes.data,
+//       });
+//     } catch {
+//       setError('Failed to load reviews.');
+//     } finally {
+//       setLoading(false);
+//     }
+//   }, [courtCaseId]);
+
+//   useEffect(() => { load(); }, [load, refreshTick]);
+
+//   // ── Normalise every reviewable thing into one item shape ──
+//   const allItems = useMemo(() => {
+//     const { reviews, notices, replies, closureCase } = data;
+//     const items = [];
+
+//     reviews.forEach((r) => items.push({
+//       ...r, type: r.action_type, key: `${r.action_type}-${r.id}`, _sortDate: r.reviewed_at || r.submitted_at,
+//     }));
+
+//     notices.filter((n) => n.review_status && n.review_status !== 'not_applicable').forEach((n) => items.push({
+//       type: 'notice', key: `notice-${n.id}`, id: n.id, notice_id: n.id, din_number: n.din_number,
+//       status: n.review_status === 'accepted' ? 'approved' : n.review_status,
+//       submitted_by_name: n.created_by_name, submitted_at: n.updated_at, reviewed_by_name: n.reviewed_by_name,
+//       _sortDate: n.reviewed_at || n.updated_at,
+//     }));
+
+//     replies.forEach((r) => items.push({
+//       type: 'reply', key: `reply-${r.id}`, id: r.id, reply_id: r.id, notice_id: r.notice?.id, notice: r.notice,
+//       status: r.status, title: r.title, submitted_by_name: r.created_by_name, submitted_at: r.updated_at,
+//       review_note: r.review_note, reviewed_by_name: r.reviewed_by_name, _sortDate: r.reviewed_at || r.updated_at,
+//     }));
+
+//     // Documents only appear once the maker has submitted them.
+//     const submitted = ['pending', 'escalated', 'approved', 'rejected'];
+//     notices.forEach((n) => {
+//       const docs = (n.documents || []).filter((d) => submitted.includes(d.review_status));
+//       const supports = docs.filter((d) => ['pending_support', 'supporting_doc'].includes(d.doc_type));
+//       docs.forEach((d) => {
+//         const base = {
+//           id: d.id, notice_id: n.id, notice: n, status: d.review_status, file_name: d.file_name, file_url: d.file_url,
+//           uploaded_by: d.uploaded_by, submitted_by_name: d.uploaded_by_name, submitted_at: d.uploaded_at,
+//           review_note: d.review_note, reviewed_by_name: d.reviewed_by_name, _sortDate: d.reviewed_at || d.uploaded_at,
+//         };
+//         if (d.doc_type === 'acknowledgment') items.push({ ...base, type: 'ack', key: `ack-${d.id}` });
+//         if (d.doc_type === 'pending' || d.doc_type === 'reply') {
+//           items.push({ ...base, type: 'uploaded_reply_bundle', key: `up-${d.id}`, support_docs: supports.filter((s) => String(s.reply_version) === String(d.id)) });
+//         }
+//       });
+//     });
+
+//     if (closureCase && submitted.includes(closureCase.closure_review_status)) {
+//       items.push({
+//         type: 'closure', key: `closure-${closureCase.id}`, id: closureCase.id, status: closureCase.closure_review_status,
+//         closure_documents: closureCase.closure_documents || [], submitted_by_id: closureCase.closure_submitted_by,
+//         submitted_by_name: closureCase.closure_submitted_by_name, submitted_at: closureCase.closure_submitted_at,
+//         review_note: closureCase.closure_review_note, reviewed_by_name: closureCase.closure_reviewed_by_name,
+//         _sortDate: closureCase.closure_reviewed_at || closureCase.closure_submitted_at,
+//       });
+//     }
+
+//     return items.sort((a, b) => new Date(b._sortDate) - new Date(a._sortDate));
+//   }, [data]);
+
+//   const activeItems = allItems.filter((i) => i.status === 'pending' || i.status === 'escalated');
+//   const historyItems = allItems.filter((i) => i.status !== 'pending' && i.status !== 'escalated');
+//   const typeFilter = TYPE_FILTERS.find((t) => t.key === historyType);
+//   const visibleHistory = historyItems.filter((i) => (historyStatus === 'all' || i.status === historyStatus) && typeFilter.match(i));
+
+//   // ── Permissions (unchanged rules) ──
+//   // Pending items: assigned checker (or admin via viewer_role). Escalated: CEO / admin.
+//   // The CEO can't act on pending items unless they're the assigned checker.
+//   const canDecide = (item) => {
+//     if (item.type === 'summary' || item.type === 'notice_edit') {
+//       if (item.viewer_role === 'submitter') return false;
+//       if (item.status === 'escalated') return isHighAdmin;
+//       if (item.status === 'pending') return (!isFounder || item.viewer_role === 'checker') && ['admin', 'checker'].includes(item.viewer_role);
+//       return false;
+//     }
+//     if (item.type === 'closure' ? item.submitted_by_id === user?.id : item.uploaded_by === user?.id) return false;
+//     if (item.status === 'escalated') return isFounder;
+//     if (item.status === 'pending') return isChecker;
+//     return false;
+//   };
+
+//   const replyAccess = (item) => {
+//     const isCeo = user?.role === 'Founder' || user?.role === 'Admin';
+//     if (item.notice?.created_by === user?.id && item.status === 'pending') return null;
+//     if (item.status === 'pending') return (isChecker || isCeo) ? 'Review reply →' : null;
+//     if (item.status === 'escalated') return isCeo ? 'Review reply →' : null;
+//     return (isMaker || isChecker || isCeo) ? 'View reply →' : null;
+//   };
+
+//   // ── Decisions ──
+//   const startApprove = (item) => {
+//     // Escalated summary/notice edits are approved directly by the CEO.
+//     if ((item.type === 'summary' || item.type === 'notice_edit') && item.status === 'escalated') {
+//       setBusyId(item.key);
+//       legalApi.reviews.approve(item.id).then(() => { load(); onUpdated?.(); })
+//         .catch((e) => setError(e?.response?.data?.error || 'Failed to approve.'))
+//         .finally(() => setBusyId(null));
+//       return;
+//     }
+//     setAcceptTarget(item);
+//   };
+
+//   const doAccept = async (moveToCeo) => {
+//     const t = acceptTarget;
+//     setBusyId(t.key);
+//     try {
+//       if (t.type === 'closure') await (moveToCeo ? legalApi.courtCases.closureEscalate(t.id) : legalApi.courtCases.closureApprove(t.id));
+//       else if (t.type === 'ack' || t.type === 'uploaded_reply_bundle') await (moveToCeo ? legalApi.noticeDocs.escalate(t.id) : legalApi.noticeDocs.approve(t.id));
+//       else await (moveToCeo ? legalApi.reviews.escalate(t.id) : legalApi.reviews.approve(t.id));
+//       setAcceptTarget(null);
+//       await load();
+//       onUpdated?.();
+//     } finally {
+//       setBusyId(null);
+//     }
+//   };
+
+//   const doReject = async (reason) => {
+//     const t = rejectTarget;
+//     setBusyId(t.key);
+//     try {
+//       if (t.type === 'closure') await legalApi.courtCases.closureReject(t.id, reason);
+//       else if (t.type === 'ack' || t.type === 'uploaded_reply_bundle') await legalApi.noticeDocs.reject(t.id, reason);
+//       else await legalApi.reviews.reject(t.id, reason);
+//       setRejectTarget(null);
+//       await load();
+//       onUpdated?.();
+//     } finally {
+//       setBusyId(null);
+//     }
+//   };
+
+//   const openReply = (item) => setReplyModal({ noticeId: item.notice_id, notice: item.notice, replyId: item.reply_id });
+
+//   const renderActive = (item) => {
+//     if (item.type === 'notice') {
+//       return <ReviewCard key={item.key} item={item} openLabel="View notice →" onOpen={() => setNoticeId(item.notice_id)} />;
+//     }
+//     if (item.type === 'reply') {
+//       const label = replyAccess(item);
+//       return <ReviewCard key={item.key} item={item} openLabel={label} onOpen={label ? () => openReply(item) : null} />;
+//     }
+//     return (
+//       <ReviewCard
+//         key={item.key} item={item} busy={busyId === item.key} canDecide={canDecide(item)}
+//         approveLabel={item.type === 'closure' ? '✓ Approve & close' : '✓ Approve'}
+//         onApprove={() => startApprove(item)} onReject={() => setRejectTarget(item)}
+//       />
+//     );
+//   };
+
+//   const historyColumns = [
+//     {
+//       key: 'title', label: 'Item', align: 'left', width: 360, sortable: true, sortFn: (a, b) => itemTitle(a).localeCompare(itemTitle(b)),
+//       render: (i) => <span>{ACTION_META[i.type]?.icon} {itemTitle(i)}</span>,
+//     },
+//     { key: 'by', label: 'Reviewed by', align: 'left', render: (i) => i.reviewed_by_name || i.submitted_by_name || '—' },
+//     { key: 'when', label: 'When', sortable: true, sortFn: (a, b) => new Date(a._sortDate) - new Date(b._sortDate), render: (i) => fmtRelativeTime(i._sortDate) },
+//     { key: 'status', label: 'Status', sortable: true, render: (i) => <StatusPill status={i.status} map={REVIEW_STATUS} /> },
+//   ];
+
+//   if (loading) return <EmptyState icon="⏳" text="Loading reviews…" />;
+
+//   return (
+//     <div>
+//       <ErrorBanner>{error}</ErrorBanner>
+
+//       <SectionTitle style={{ marginTop: 0 }}>Active reviews ({activeItems.length})</SectionTitle>
+//       {activeItems.length === 0 ? (
+//         <EmptyState icon="📋" text="No active reviews pending.">
+//           <div style={{ fontSize: 12, marginTop: 4 }}>Completed items are listed in History below.</div>
+//         </EmptyState>
+//       ) : (
+//         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{activeItems.map(renderActive)}</div>
+//       )}
+
+//       <SectionTitle style={{ marginTop: 28 }}>History ({historyItems.length})</SectionTitle>
+//       <div className="filter-bar">
+//         <Segmented value={historyStatus} onChange={setHistoryStatus} options={[
+//           { key: 'all', label: `All (${historyItems.length})` },
+//           { key: 'approved', label: `Approved (${historyItems.filter((i) => i.status === 'approved').length})` },
+//           { key: 'rejected', label: `Rejected (${historyItems.filter((i) => i.status === 'rejected').length})` },
+//         ]} />
+//         <div className="filter-field">
+//           <Select value={historyType} onChange={setHistoryType}
+//             options={TYPE_FILTERS.map((t) => ({ value: t.key, label: `${t.label} (${historyItems.filter(t.match).length})` }))} />
+//         </div>
+//       </div>
+//       <Table
+//         columns={historyColumns}
+//         rows={visibleHistory}
+//         getRowId={(i) => i.key}
+//         onRowClick={setHistoryItem}
+//         emptyMessage="No completed items match this filter."
+//         pageSize={10}
+//       />
+
+//       {historyItem && (
+//         <Modal
+//           isOpen size="lg" icon={ACTION_META[historyItem.type]?.icon}
+//           title={itemTitle(historyItem)}
+//           subtitle={`${historyItem.status === 'approved' ? 'Approved' : historyItem.status === 'rejected' ? 'Rejected' : 'Reviewed'} by ${historyItem.reviewed_by_name || 'Unknown'} · ${fmtDateTime(historyItem._sortDate)}`}
+//           onClose={() => setHistoryItem(null)}
+//           footer={
+//             <>
+//               {historyItem.type === 'reply' && replyAccess(historyItem) && (
+//                 <button className="btn btn-secondary" onClick={() => { openReply(historyItem); setHistoryItem(null); }}>Open reply editor</button>
+//               )}
+//               {historyItem.type === 'notice' && (
+//                 <button className="btn btn-secondary" onClick={() => { setNoticeId(historyItem.notice_id); setHistoryItem(null); }}>View notice</button>
+//               )}
+//               <button className="btn btn-primary" onClick={() => setHistoryItem(null)}>Close</button>
+//             </>
+//           }
+//         >
+//           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+//             <StatusPill status={historyItem.status} map={REVIEW_STATUS} />
+//             <span style={{ fontSize: 12, color: MUT }}>Submitted by <b>{historyItem.submitted_by_name || 'Unknown'}</b></span>
+//           </div>
+//           <ItemBody item={historyItem} />
+//           <RejectionNote item={historyItem} />
+//         </Modal>
+//       )}
+
+//       {rejectTarget && <RejectModal onClose={() => setRejectTarget(null)} onRejected={doReject} />}
+//       {acceptTarget && <AcceptModal onClose={() => setAcceptTarget(null)} onAccepted={doAccept} showEscalate={!isFounder} />}
+//       {noticeId && (
+//         <NoticeDetailModal noticeId={noticeId} canEdit={false} onClose={() => setNoticeId(null)}
+//           onUpdated={() => { load(); onUpdated?.(); }} />
+//       )}
+//       {replyModal && (
+//         <ReplyEditorModal
+//           noticeId={replyModal.noticeId} notice={replyModal.notice} replyId={replyModal.replyId} mode="review"
+//           currentUserId={user?.id} isAssignedMaker={isMaker} isAssignedChecker={isChecker} isCeoRole={isFounder}
+//           onClose={() => setReplyModal(null)}
+//           onSaved={() => { setReplyModal(null); load(); onUpdated?.(); }}
+//         />
+//       )}
+//     </div>
+//   );
+// }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ReviewTabV2.js — Review tab: active checker reviews (cards) + completed
+// history (shared Table; click a row for details).
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { api } from '../../services/api';
+import { Select } from 'antd';
 import { useAuth } from '../../contexts/AuthContext';
-import RejectModal, { AcceptModal } from './RejectModal';
-import { NoticeDetailModal } from './AddNoticeModal';
+import { RejectModal, AcceptModal, NoticeDetailModal } from './LegalModals';
 import ReplyEditorModal from './ReplyEditorModal';
-
-/* ─── LOCAL API DEFINITIONS ─── */
-const reviewApi = {
-  list: (params) => api.get('/legal-services/reviews/', { params }),
-  approve: (id) => api.post(`/legal-services/reviews/${id}/approve/`),
-  reject: (id, reason) => api.post(`/legal-services/reviews/${id}/reject/`, { reason }),
-  escalate: (id) => api.post(`/legal-services/reviews/${id}/escalate/`),
-};
-
-const noticeApi = {
-  list: (params) => api.get('/legal-services/notices/', { params }),
-};
-
-const replyApi = {
-  list: (params) => api.get('/legal-services/notice-replies/', { params }),
-};
-
-const noticeDocApi = {
-  approve: (id) => api.post(`/legal-services/notice-documents/${id}/approve/`),
-  reject: (id, reason) => api.post(`/legal-services/notice-documents/${id}/reject/`, { reason }),
-};
-
-const SANS = "'Roboto', sans-serif";
-
-const C = {
-  navy: '#1E3A6B', navyMid: '#2A4F8F', ink: '#0F172A',
-  slate: '#475569', muted: '#94A3B8',
-  border: '#E8ECF4', borderLight: '#F1F5F9',
-  bg: '#F8FAFC', bgSoft: '#FBFCFE',
-  green: '#0F7A5A', greenBg: '#E6F5EF', greenBorder: '#B4DFCF',
-  red: '#B42318', redBg: '#FCEBEA', redBorder: '#F2C1BC',
-  amber: '#92620B', amberBg: '#FBF2DE', amberBorder: '#F0DDA3',
-  purple: '#6D28D9', purpleBg: '#F1E8FE', purpleBorder: '#DCC8FA',
-  blue: '#2563EB', blueBg: '#E8F0FE', blueBorder: '#C5D5EF',
-};
+import {
+  Modal, Table, P, PL, MUT, INK, GR, RED, REDL, PUR, BRD,
+  REVIEW_STATUS, CLOSURE_DOC_TYPES, StatusPill, FileChip, EmptyState, ErrorBanner, Segmented, SectionTitle,
+  legalApi, toList, isInList, fmtDateTime, fmtRelativeTime, openFile, downloadDoc, fmtDate
+} from './legalCommon';
 
 const ACTION_META = {
-  summary:        { label: 'Case Summary Update',  icon: '📝', color: C.purple, bg: C.purpleBg, border: C.purpleBorder },
-  notice_edit:    { label: 'Notice Info Update',   icon: '✎',  color: C.blue,   bg: C.blueBg,   border: C.blueBorder },
-  notice_review:  { label: 'Notice Review',        icon: '📋', color: C.navy,   bg: C.blueBg,   border: C.blueBorder },
-  reply_review:   { label: 'Reply Document',       icon: '📄', color: C.navy,   bg: C.blueBg,   border: C.blueBorder },
-  ack_review:     { label: 'Acknowledgment',       icon: '📥', color: C.purple, bg: C.purpleBg, border: C.purpleBorder },
-  closure_review: { label: 'Case Closure Request', icon: '🔒', color: C.red,    bg: '#FEF3EE',  border: '#FED7AA' },
+  summary:     { label: 'Case Summary Update', icon: '📝' },
+  notice_edit: { label: 'Notice Info Update',  icon: '✎' },
+  extension:   { label: 'Due Date Extension',  icon: '📅' },
+  notice:      { label: 'Notice Review',       icon: '📋' },
+  reply:       { label: 'Reply (Editor)',      icon: '📄' },
+  uploaded_reply_bundle: { label: 'Uploaded Reply', icon: '📄' },
+  ack:         { label: 'Acknowledgment',      icon: '📥' },
+  closure:     { label: 'Case Closure Request', icon: '🔒' },
 };
 
-const STATUS_META = {
-  pending:   { label: 'Pending',   color: C.amber, bg: C.amberBg, border: C.amberBorder },
-  approved:  { label: 'Approved',  color: C.green, bg: C.greenBg, border: C.greenBorder },
-  accepted:  { label: 'Approved',  color: C.green, bg: C.greenBg, border: C.greenBorder },
-  rejected:  { label: 'Rejected',  color: C.red,   bg: C.redBg,   border: C.redBorder },
-  escalated: { label: 'Move to CEO', color: C.purple,bg: C.purpleBg,border: C.purpleBorder },
-};
+const TYPE_FILTERS = [
+  { key: 'all', label: 'All types', match: () => true },
+  { key: 'notice_edit', label: 'Notice info', match: (r) => r.type === 'notice_edit' },
+  { key: 'extension', label: 'Extensions', match: (r) => r.type === 'extension' },
+  { key: 'reply', label: 'Reply', match: (r) => r.type === 'reply' || r.type === 'uploaded_reply_bundle' },
+  { key: 'ack', label: 'Acknowledgment', match: (r) => r.type === 'ack' },
+  { key: 'summary', label: 'Summary', match: (r) => r.type === 'summary' },
+  { key: 'closure', label: 'Closure', match: (r) => r.type === 'closure' },
+];
 
-const HIGH_ADMIN_ROLES = ['Admin', 'Founder'];
+const itemTitle = (item) => ({
+  reply: `Reply — ${item.title || 'Untitled'}`,
+  uploaded_reply_bundle: `Uploaded Reply — ${item.file_name}`,
+  ack: `Acknowledgment — ${item.file_name}`,
+  notice_edit: `Notice Info — DIN ${item.payload?.notice_din || '—'}`,
+  extension: `Extension — DIN ${item.payload?.notice_din || '—'}`,
+  notice: `Notice — DIN ${item.din_number || '—'}`,
+}[item.type] || ACTION_META[item.type]?.label);
 
-function fmtDateTime(d) {
-  if (!d) return '';
-  return new Date(d).toLocaleString('en-IN', {
-    day: '2-digit', month: 'short', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', hour12: true,
-  });
+function Box({ label, children }) {
+  return (
+    <div style={{ padding: '10px 12px', background: 'var(--color-slate-50)', border: `1px solid ${BRD}`, borderRadius: 'var(--radius-md)' }}>
+      {label && <div style={{ fontSize: 11, fontWeight: 700, color: MUT, marginBottom: 6 }}>{label}</div>}
+      {children}
+    </div>
+  );
 }
 
-function fmtDate(d) {
-  if (!d) return '—';
-  return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+function FieldDiff({ fields, oldValues, newValues }) {
+  const fmt = (v) => (v === null || v === undefined || v === '' ? '—' : String(v));
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+      {fields.map((f) => (
+        <div key={f} style={{ display: 'flex', gap: 8, fontSize: 12 }}>
+          <span style={{ minWidth: 110, fontWeight: 600, color: MUT }}>{f.replace(/_/g, ' ')}</span>
+          <span style={{ color: RED, textDecoration: 'line-through' }}>{fmt(oldValues?.[f])}</span>
+          <span style={{ color: MUT }}>→</span>
+          <span style={{ color: GR, fontWeight: 700 }}>{fmt(newValues?.[f])}</span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
-function fmtRelativeTime(d) {
-  if (!d) return '';
-  const diff = Math.floor((Date.now() - new Date(d)) / 1000);
-  if (diff < 60) return 'just now';
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
-  return fmtDate(d);
+function ItemBody({ item }) {
+  if (item.type === 'summary') {
+    return <Box label="Summary text"><div style={{ fontSize: 13, color: INK, whiteSpace: 'pre-wrap' }}>{item.payload?.description || '(empty)'}</div></Box>;
+  }
+  if (item.type === 'notice_edit') {
+    return <Box label="Changes requested"><FieldDiff fields={item.payload?.changed_fields || []} oldValues={item.payload?.old_values} newValues={item.payload?.new_values} /></Box>;
+  }
+  if (item.type === 'uploaded_reply_bundle') {
+    return (
+      <Box>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: MUT, marginBottom: 6 }}>Main reply</div>
+            <FileChip name={item.file_name} onOpen={() => openFile(item.file_url)} onDownload={() => downloadDoc(item)} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: MUT, marginBottom: 6 }}>Supporting docs ({item.support_docs?.length || 0})</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {item.support_docs?.length ? item.support_docs.map((sd) => (
+                <FileChip key={sd.id} name={sd.file_name} icon="📎" onOpen={() => openFile(sd)} onDownload={() => downloadDoc(sd)} />
+              )) : <span style={{ fontSize: 12, color: MUT, fontStyle: 'italic' }}>None</span>}
+            </div>
+          </div>
+        </div>
+      </Box>
+    );
+  }
+  if (item.type === 'ack') {
+    return <FileChip name={item.file_name} icon="📥" onOpen={() => openFile(item.file_url)} onDownload={() => downloadDoc(item)} width={340} />;
+  }
+  if (item.type === 'closure') {
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
+        {CLOSURE_DOC_TYPES.map((t) => {
+          const doc = item.closure_documents?.find((d) => d.doc_type === t.key);
+          return doc && (
+            <div key={t.key}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: MUT, marginBottom: 4 }}>{t.label}</div>
+              <FileChip name={doc.file_name} onOpen={() => openFile(doc)} onDownload={() => downloadDoc(doc)} />
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+  if (item.type === 'extension') {
+    return (
+      <Box label="Extension Request">
+        <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>
+          <div><span style={{ fontSize: 11, color: MUT }}>Old Due Date:</span> <span style={{ fontSize: 13, textDecoration: 'line-through', color: RED, fontWeight: 600 }}>{fmtDate(item.payload?.old_date) || '—'}</span></div>
+          <div><span style={{ fontSize: 11, color: MUT }}>Extended To:</span> <span style={{ fontSize: 13, fontWeight: 800, color: P }}>{fmtDate(item.payload?.new_date)}</span></div>
+        </div>
+        {item.payload?.notes && <div style={{ fontSize: 12, color: INK, fontStyle: 'italic', marginBottom: 12 }}>"{item.payload.notes}"</div>}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: MUT, marginBottom: 6 }}>Reply Files ({item.payload?.reply_docs?.length || 0})</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {item.payload?.reply_docs?.map((d) => <FileChip key={d.id} name={d.file_name} icon="📄" onOpen={() => openFile(d)} onDownload={() => downloadDoc(d)} />)}
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: MUT, marginBottom: 6 }}>Ack Files ({item.payload?.ack_docs?.length || 0})</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {item.payload?.ack_docs?.map((d) => <FileChip key={d.id} name={d.file_name} icon="📥" onOpen={() => openFile(d)} onDownload={() => downloadDoc(d)} />)}
+            </div>
+          </div>
+        </div>
+      </Box>
+    );
+  }
+
+  return null;
 }
 
-const handleDownloadFile = async (fileUrl, fileName) => {
-  if (!fileUrl) return;
-  try {
-    const response = await fetch(fileUrl); const blob = await response.blob();
-    const url = window.URL.createObjectURL(blob); const link = document.createElement('a');
-    link.href = url; link.download = fileName || 'download'; document.body.appendChild(link);
-    link.click(); document.body.removeChild(link); window.URL.revokeObjectURL(url);
-  } catch (e) { console.error('Download failed', e); }
-};
+function RejectionNote({ item }) {
+  if (item.status !== 'rejected' || !item.review_note) return null;
+  return (
+    <div style={{ marginTop: 10, padding: '8px 12px', background: REDL, border: '1px solid #FECACA', borderRadius: 'var(--radius-md)', fontSize: 12, color: RED }}>
+      <b>Rejection reason:</b> {item.review_note}
+    </div>
+  );
+}
 
-// ══════════════════════════════════════════════════════════════════
-// MAIN COMPONENT
-// ══════════════════════════════════════════════════════════════════
-export default function ReviewTabV2({ courtCaseId, litigationType, refreshTick, caseData, onUpdated }) {
+function ReviewCard({ item, busy, canDecide, onApprove, onReject, openLabel, onOpen, approveLabel = '✓ Approve' }) {
+  const meta = ACTION_META[item.type];
+  const accent = item.status === 'escalated' ? PUR : P;
+  return (
+    <div className="card" style={{ padding: 14, borderLeft: `4px solid ${accent}` }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+        <div style={{ width: 32, height: 32, borderRadius: 'var(--radius-md)', background: PL, color: P, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, flexShrink: 0 }}>
+          {meta.icon}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: INK }}>{meta.label}</span>
+            {item.notice?.din_number && <span className="tag-chip mono">DIN {item.notice.din_number}</span>}
+            <StatusPill status={item.status} map={REVIEW_STATUS} />
+          </div>
+          <div style={{ fontSize: 11.5, color: MUT, marginTop: 2 }}>
+            Submitted by <b style={{ color: 'var(--color-slate-600)' }}>{item.submitted_by_name || 'Unknown'}</b>
+            {item.submitted_at && ` · ${fmtDateTime(item.submitted_at)}`}
+          </div>
+        </div>
+        {onOpen && <button className="btn btn-primary" onClick={onOpen}>{openLabel}</button>}
+      </div>
+
+      <ItemBody item={item} />
+      <RejectionNote item={item} />
+
+      {canDecide && (
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
+          <button className="btn btn-secondary" style={{ color: RED }} onClick={onReject} disabled={busy}>Reject</button>
+          <button className="btn btn-primary" onClick={onApprove} disabled={busy}>{busy ? 'Working…' : approveLabel}</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function ReviewTabV2({ courtCaseId, refreshTick, caseData, onUpdated }) {
   const { user } = useAuth();
 
-  const [reviews, setReviews] = useState([]);
-  const [notices, setNotices] = useState([]);
-  const [replies, setReplies] = useState([]);
-  const [ackDocs, setAckDocs] = useState([]); 
-  const [pendingReplyDocs, setPendingReplyDocs] = useState([]); 
-  const [pendingSupportDocs, setPendingSupportDocs] = useState([]); 
-  const [closureCase, setClosureCase] = useState(null);
-  
+  const [data, setData] = useState({ reviews: [], notices: [], replies: [], closureCase: null });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [busyId, setBusyId] = useState(null);
 
   const [rejectTarget, setRejectTarget] = useState(null);
   const [acceptTarget, setAcceptTarget] = useState(null);
-
-  const [selectedNoticeId, setSelectedNoticeId] = useState(null);
-  const [replyModalData, setReplyModalData] = useState(null);
-
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyFilter, setHistoryFilter] = useState('all');
-  const [historyStatusFilter, setHistoryStatusFilter] = useState('all');
-  const [expandedHistoryId, setExpandedHistoryId] = useState(null);
+  const [noticeId, setNoticeId] = useState(null);
+  const [replyModal, setReplyModal] = useState(null);
+  const [historyItem, setHistoryItem] = useState(null);
+  const [historyStatus, setHistoryStatus] = useState('all');
+  const [historyType, setHistoryType] = useState('all');
 
   const isFounder = user?.role === 'Founder';
-  const isHighAdmin = HIGH_ADMIN_ROLES.includes(user?.role);
+  const isHighAdmin = ['Admin', 'Founder'].includes(user?.role);
+  const isMaker = isInList(caseData?.makers, user);
+  const isChecker = isInList(caseData?.checkers, user);
 
   const load = useCallback(async () => {
     if (!courtCaseId) return;
     setLoading(true); setError(null);
     try {
-      const [reviewsRes, noticesRes, caseRes] = await Promise.all([
-        reviewApi.list({ court_case: courtCaseId }),
-        noticeApi.list({ court_case: courtCaseId }),
-        api.get(`/legal-services/court-cases/${courtCaseId}/`),
+      const [rRes, nRes, cRes] = await Promise.all([
+        legalApi.reviews.list({ court_case: courtCaseId }),
+        legalApi.notices.list({ court_case: courtCaseId }),
+        legalApi.courtCases.get(courtCaseId),
       ]);
-      const reviewData = Array.isArray(reviewsRes.data) ? reviewsRes.data : (reviewsRes.data.results || []);
-      const noticeData = Array.isArray(noticesRes.data) ? noticesRes.data : (noticesRes.data.results || []);
-
-      setReviews(reviewData.filter(r => r.action_type === 'summary' || r.action_type === 'notice_edit'));
-      setNotices(noticeData.filter(n => n.review_status && n.review_status !== 'not_applicable'));
-      setClosureCase(caseRes.data);
-
-      const allAckDocs = [];
-      const allPendingReplyDocs = [];
-      const allPendingSupportDocs = [];
-
-      noticeData.forEach((n) => {
-        (n.documents || []).forEach((d) => {
-          // Only after Maker clicked "Submit for Review" (or later states)
-          const submitted = ['pending', 'escalated', 'approved', 'rejected'].includes(
-            d.review_status
-          );
-          if (!submitted) return; // keep drafts out of Review entirely
-
-          if (d.doc_type === 'acknowledgment') {
-            allAckDocs.push({ ...d, notice: n });
-          } else if (d.doc_type === 'pending' || d.doc_type === 'reply') {
-            allPendingReplyDocs.push({ ...d, notice: n });
-          } else if (d.doc_type === 'pending_support' || d.doc_type === 'supporting_doc') {
-            allPendingSupportDocs.push({ ...d, notice: n });
-          }
-        });
+      const notices = toList(nRes);
+      const replyLists = await Promise.all(notices.map((n) =>
+        legalApi.replies.list({ notice: n.id }).then((r) => toList(r).map((x) => ({ ...x, notice: n }))).catch(() => [])
+      ));
+      setData({
+        reviews: toList(rRes).filter((r) => r.action_type === 'summary' || r.action_type === 'notice_edit' || r.action_type === 'extension'),
+        notices,
+        replies: replyLists.flat().filter((r) => r.status !== 'draft'),
+        closureCase: cRes.data,
       });
-      setAckDocs(allAckDocs);
-      setPendingReplyDocs(allPendingReplyDocs);
-      setPendingSupportDocs(allPendingSupportDocs);
-
-      if (noticeData.length > 0) {
-        const replyPromises = noticeData.map((n) =>
-          replyApi.list({ notice: n.id })
-            .then(r => {
-              const list = Array.isArray(r.data) ? r.data : (r.data.results || []);
-              return list.map(reply => ({ ...reply, notice: n }));
-            })
-            .catch(() => [])
-        );
-        const replyResults = await Promise.all(replyPromises);
-        setReplies(replyResults.flat().filter(r => r.status !== 'draft'));
-      } else {
-        setReplies([]);
-      }
-    } catch (e) { setError('Failed to load reviews.'); } finally { setLoading(false); }
+    } catch {
+      setError('Failed to load reviews.');
+    } finally {
+      setLoading(false);
+    }
   }, [courtCaseId]);
 
   useEffect(() => { load(); }, [load, refreshTick]);
 
-  // const canApproveReviewRequest = (review) => {
-  //   if (review.viewer_role === 'submitter') return false;
-  //   if (review.status === 'escalated') return isHighAdmin;
-  //   if (review.status === 'pending') return ['admin', 'founder', 'checker'].includes(review.viewer_role);
-  //   return false;
-  // };
+  const allItems = useMemo(() => {
+    const { reviews, notices, replies, closureCase } = data;
+    const items = [];
 
-  const canApproveReviewRequest = (review) => {
-    if (review.viewer_role === 'submitter') return false;
-    
-    // CEO can approve escalated
-    if (review.status === 'escalated') return isHighAdmin;
-    
-    if (review.status === 'pending') {
-      // ✅ RESTRICT CEO: Founder cannot touch pending items (unless they are explicitly assigned as the Checker)
-      if (isFounder && review.viewer_role !== 'checker') return false;
-      
-      return ['admin', 'checker'].includes(review.viewer_role);
+    reviews.forEach((r) => items.push({
+      ...r, type: r.action_type, key: `${r.action_type}-${r.id}`, _sortDate: r.reviewed_at || r.submitted_at,
+    }));
+
+    notices.filter((n) => n.review_status && n.review_status !== 'not_applicable').forEach((n) => items.push({
+      type: 'notice', key: `notice-${n.id}`, id: n.id, notice_id: n.id, din_number: n.din_number,
+      status: n.review_status === 'accepted' ? 'approved' : n.review_status,
+      submitted_by_name: n.created_by_name, submitted_at: n.updated_at, reviewed_by_name: n.reviewed_by_name,
+      _sortDate: n.reviewed_at || n.updated_at,
+    }));
+
+    replies.forEach((r) => items.push({
+      type: 'reply', key: `reply-${r.id}`, id: r.id, reply_id: r.id, notice_id: r.notice?.id, notice: r.notice,
+      status: r.status, title: r.title, submitted_by_name: r.created_by_name, submitted_at: r.updated_at,
+      review_note: r.review_note, reviewed_by_name: r.reviewed_by_name, _sortDate: r.reviewed_at || r.updated_at,
+    }));
+
+    const submitted = ['pending', 'escalated', 'approved', 'rejected'];
+    notices.forEach((n) => {
+      const docs = (n.documents || []).filter((d) => submitted.includes(d.review_status));
+      const supports = docs.filter((d) => ['pending_support', 'supporting_doc'].includes(d.doc_type));
+      docs.forEach((d) => {
+        const base = {
+          id: d.id, notice_id: n.id, notice: n, status: d.review_status, file_name: d.file_name, file_url: d.file_url,
+          uploaded_by: d.uploaded_by, submitted_by_name: d.uploaded_by_name, submitted_at: d.uploaded_at,
+          review_note: d.review_note, reviewed_by_name: d.reviewed_by_name, _sortDate: d.reviewed_at || d.uploaded_at,
+        };
+        if (d.doc_type === 'acknowledgment') items.push({ ...base, type: 'ack', key: `ack-${d.id}` });
+        if (d.doc_type === 'pending' || d.doc_type === 'reply') {
+          items.push({ ...base, type: 'uploaded_reply_bundle', key: `up-${d.id}`, support_docs: supports.filter((s) => String(s.reply_version) === String(d.id)) });
+        }
+      });
+    });
+
+    if (closureCase && submitted.includes(closureCase.closure_review_status)) {
+      items.push({
+        type: 'closure', key: `closure-${closureCase.id}`, id: closureCase.id, status: closureCase.closure_review_status,
+        closure_documents: closureCase.closure_documents || [], submitted_by_id: closureCase.closure_submitted_by,
+        submitted_by_name: closureCase.closure_submitted_by_name, submitted_at: closureCase.closure_submitted_at,
+        review_note: closureCase.closure_review_note, reviewed_by_name: closureCase.closure_reviewed_by_name,
+        _sortDate: closureCase.closure_reviewed_at || closureCase.closure_submitted_at,
+      });
     }
+
+    return items.sort((a, b) => new Date(b._sortDate) - new Date(a._sortDate));
+  }, [data]);
+
+  const activeItems = allItems.filter((i) => i.status === 'pending' || i.status === 'escalated');
+  const historyItems = allItems.filter((i) => i.status !== 'pending' && i.status !== 'escalated');
+  const typeFilter = TYPE_FILTERS.find((t) => t.key === historyType);
+  const visibleHistory = historyItems.filter((i) => (historyStatus === 'all' || i.status === historyStatus) && typeFilter.match(i));
+
+  const canDecide = (item) => {
+    if (item.type === 'summary' || item.type === 'notice_edit' || item.type === 'extension') {
+      if (item.viewer_role === 'submitter') return false;
+      if (item.status === 'escalated') return isHighAdmin;
+      if (item.status === 'pending') return (!isFounder || item.viewer_role === 'checker') && ['admin', 'checker'].includes(item.viewer_role);
+      return false;
+    }
+    if (item.type === 'closure' ? item.submitted_by_id === user?.id : item.uploaded_by === user?.id) return false;
+    if (item.status === 'escalated') return isFounder;
+    if (item.status === 'pending') return isChecker;
     return false;
   };
 
-  const canRejectReviewRequest = (review) => canApproveReviewRequest(review);
+  const replyAccess = (item) => {
+    const isCeo = user?.role === 'Founder' || user?.role === 'Admin';
+    if (item.notice?.created_by === user?.id && item.status === 'pending') return null;
+    if (item.status === 'pending') return (isChecker || isCeo) ? 'Review reply →' : null;
+    if (item.status === 'escalated') return isCeo ? 'Review reply →' : null;
+    return (isMaker || isChecker || isCeo) ? 'View reply →' : null;
+  };
 
-  const handleApproveReviewRequest = (review) => {
-    if (review.status === 'escalated') {
-      setBusyId(review.id);
-      reviewApi.approve(review.id)
-        .then(() => {
-          load();
-          onUpdated?.();
-        })
-        .catch((e) => alert(e?.response?.data?.error || 'Failed to approve.'))
+  const startApprove = (item) => {
+    if ((item.type === 'summary' || item.type === 'notice_edit' || item.type === 'extension') && item.status === 'escalated') {
+      setBusyId(item.key);
+      legalApi.reviews.approve(item.id).then(() => { load(); onUpdated?.(); })
+        .catch((e) => setError(e?.response?.data?.error || 'Failed to approve.'))
         .finally(() => setBusyId(null));
       return;
     }
-    setAcceptTarget({ ...review, _kind: 'review_request' });
+    setAcceptTarget(item);
   };
-
-
-  const handleRejectReviewRequest = (review) => setRejectTarget({ ...review, _kind: 'review_request' });
-
-  const canReviewDoc = (doc) => {
-    const userId = user?.id;
-    const isSubmitter = doc.uploaded_by === userId;
-    const isAssignedChecker = (caseData?.checkers || []).some((c) => c.id === userId);
-    const isCeoRole = user?.role === 'Founder';
-
-    if (isSubmitter) return false;
-    
-    // CEO can approve escalated
-    if (doc.status === 'escalated' || doc.review_status === 'escalated') return isCeoRole;
-    
-    if (doc.status === 'pending' || doc.review_status === 'pending') {
-      // ✅ RESTRICT CEO: Founder cannot touch pending docs
-      return isAssignedChecker; 
-    }
-    return false;
-  };
-
-
-  const handleApproveDoc = (doc) => setAcceptTarget({ ...doc, _kind: 'doc' });
-  const handleRejectDoc = (doc) => setRejectTarget({ ...doc, _kind: 'doc' });
-  const handleOpenDocPdf = (url) => { if (url) window.open(url, '_blank', 'noopener,noreferrer'); };
-
-  const canReviewClosure = (bundleItem) => {
-    const userId = user?.id;
-    const isSubmitter = bundleItem.submitted_by_id === userId;
-    const isAssignedChecker = (caseData?.checkers || []).some((c) => c.id === userId);
-    const isCeoRole = user?.role === 'Founder';
-    
-    if (isSubmitter) return false;
-    
-    // CEO can approve escalated
-    if (bundleItem.status === 'escalated') return isCeoRole;
-    
-    if (bundleItem.status === 'pending') {
-      // ✅ RESTRICT CEO: Founder cannot touch pending closures
-      return isAssignedChecker; 
-    }
-    return false;
-  };
-
-
-  const handleApproveClosure = (bundleItem) => setAcceptTarget({ ...bundleItem, _kind: 'closure' });
-  const handleRejectClosure = (bundleItem) => setRejectTarget({ ...bundleItem, _kind: 'closure' });
 
   const doAccept = async (moveToCeo) => {
-    const target = acceptTarget;
-    const id = target.id;
-    setBusyId(id);
+    const t = acceptTarget;
+    setBusyId(t.key);
     try {
-      if (target._kind === 'closure') {
-        const caseId = target.court_case_id;
-        if (moveToCeo) await api.post(`/legal-services/court-cases/${caseId}/closure-escalate/`);
-        else await api.post(`/legal-services/court-cases/${caseId}/closure-approve/`);
-      } else if (target._kind === 'doc') {
-        if (moveToCeo) await api.post(`/legal-services/notice-documents/${id}/escalate/`);
-        else await noticeDocApi.approve(id);
-      } else {
-        if (moveToCeo) await reviewApi.escalate(id);
-        else await reviewApi.approve(id);
-      }
+      if (t.type === 'closure') await (moveToCeo ? legalApi.courtCases.closureEscalate(t.id) : legalApi.courtCases.closureApprove(t.id));
+      else if (t.type === 'ack' || t.type === 'uploaded_reply_bundle') await (moveToCeo ? legalApi.noticeDocs.escalate(t.id) : legalApi.noticeDocs.approve(t.id));
+      else await (moveToCeo ? legalApi.reviews.escalate(t.id) : legalApi.reviews.approve(t.id));
       setAcceptTarget(null);
       await load();
       onUpdated?.();
-    } catch (e) { throw e; } finally { setBusyId(null); }
+    } finally {
+      setBusyId(null);
+    }
   };
 
   const doReject = async (reason) => {
-    const target = rejectTarget;
-    const id = target.id;
-    setBusyId(id);
+    const t = rejectTarget;
+    setBusyId(t.key);
     try {
-      if (target._kind === 'closure') {
-        await api.post(`/legal-services/court-cases/${target.court_case_id}/closure-reject/`, { reason });
-      } else if (target._kind === 'doc') {
-        await noticeDocApi.reject(id, reason);
-      } else {
-        await reviewApi.reject(id, reason);
-      }
+      if (t.type === 'closure') await legalApi.courtCases.closureReject(t.id, reason);
+      else if (t.type === 'ack' || t.type === 'uploaded_reply_bundle') await legalApi.noticeDocs.reject(t.id, reason);
+      else await legalApi.reviews.reject(t.id, reason);
       setRejectTarget(null);
       await load();
       onUpdated?.();
-    } catch (e) { throw e; } finally { setBusyId(null); }
+    } finally {
+      setBusyId(null);
+    }
   };
 
-  const handleViewReply = (item) => { 
-    setReplyModalData({ noticeId: item.notice_id, notice: item.notice, replyId: item.reply_id }); 
+  const openReply = (item) => setReplyModal({ noticeId: item.notice_id, notice: item.notice, replyId: item.reply_id });
+
+  const renderActive = (item) => {
+    if (item.type === 'notice') {
+      return <ReviewCard key={item.key} item={item} openLabel="View notice →" onOpen={() => setNoticeId(item.notice_id)} />;
+    }
+    if (item.type === 'reply') {
+      const label = replyAccess(item);
+      return <ReviewCard key={item.key} item={item} openLabel={label} onOpen={label ? () => openReply(item) : null} />;
+    }
+    return (
+      <ReviewCard
+        key={item.key} item={item} busy={busyId === item.key} canDecide={canDecide(item)}
+        approveLabel={item.type === 'closure' ? '✓ Approve & close' : '✓ Approve'}
+        onApprove={() => startApprove(item)} onReject={() => setRejectTarget(item)}
+      />
+    );
   };
 
-  const summaryReviewItems = reviews.filter(r => r.action_type === 'summary').map(r => ({ ...r, type: 'summary', id: `summary-${r.id}`, _originalId: r.id, _sortDate: r.reviewed_at || r.submitted_at }));
-  const noticeEditReviewItems = reviews.filter(r => r.action_type === 'notice_edit').map(r => ({ ...r, type: 'notice_edit', id: `edit-${r.id}`, _originalId: r.id, _sortDate: r.reviewed_at || r.submitted_at }));
-  const noticeReviewItems = notices.map(n => ({ id: `notice-${n.id}`, type: 'notice', notice_id: n.id, action_type: 'notice_review', status: n.review_status === 'accepted' ? 'approved' : n.review_status, din_number: n.din_number, officer: n.officer, section: n.section, _sortDate: n.reviewed_at || n.updated_at, reviewed_by_name: n.reviewed_by_name, submitted_by_name: n.created_by_name, submitted_at: n.updated_at, escalated_to_founder: n.review_status === 'escalated' }));
-  const replyReviewItems = replies.map(r => ({ id: `reply-${r.id}`, type: 'reply', reply_id: r.id, notice_id: r.notice?.id, notice: r.notice, action_type: 'reply_review', status: r.status, title: r.title, submitted_by_name: r.created_by_name, submitted_at: r.updated_at, _sortDate: r.reviewed_at || r.updated_at, review_note: r.review_note, reviewed_by_name: r.reviewed_by_name, reviewed_at: r.reviewed_at, escalated_to_founder: r.status === 'escalated' }));
-  const ackReviewItems = ackDocs.map(a => ({ id: `ack-${a.id}`, type: 'ack', doc_id: a.id, notice_id: a.notice?.id, notice: a.notice, action_type: 'ack_review', status: a.review_status, file_name: a.file_name, file_url: a.file_url, uploaded_by: a.uploaded_by, submitted_by_name: a.uploaded_by_name, submitted_at: a.uploaded_at, _sortDate: a.reviewed_at || a.uploaded_at, review_note: a.review_note, reviewed_by_name: a.reviewed_by_name, reviewed_at: a.reviewed_at, escalated_to_founder: a.review_status === 'escalated' }));
+  const historyColumns = [
+    {
+      key: 'title', label: 'Item', align: 'left', width: 360, sortable: true, sortFn: (a, b) => itemTitle(a).localeCompare(itemTitle(b)),
+      render: (i) => <span>{ACTION_META[i.type]?.icon} {itemTitle(i)}</span>,
+    },
+    { key: 'by', label: 'Reviewed by', align: 'left', render: (i) => i.reviewed_by_name || i.submitted_by_name || '—' },
+    { key: 'when', label: 'When', sortable: true, sortFn: (a, b) => new Date(a._sortDate) - new Date(b._sortDate), render: (i) => fmtRelativeTime(i._sortDate) },
+    { key: 'status', label: 'Status', sortable: true, render: (i) => <StatusPill status={i.status} map={REVIEW_STATUS} /> },
+  ];
 
-  const uploadedReplyReviewItems = pendingReplyDocs.map(d => {
-    const supports = pendingSupportDocs.filter(sd => String(sd.reply_version) === String(d.id));
-    return {
-      id: `up-reply-${d.id}`,
-      type: 'uploaded_reply_bundle',
-      doc_id: d.id, 
-      notice_id: d.notice?.id,
-      notice: d.notice,
-      action_type: 'reply_review',
-      status: d.review_status,
-      file_name: d.file_name,
-      file_url: d.file_url,
-      reply_version: d.reply_version,
-      support_docs: supports,
-      uploaded_by: d.uploaded_by,
-      submitted_by_name: d.uploaded_by_name,
-      submitted_at: d.uploaded_at,
-      _sortDate: d.reviewed_at || d.uploaded_at,
-      review_note: d.review_note,
-      reviewed_by_name: d.reviewed_by_name,
-      reviewed_at: d.reviewed_at,
-      escalated_to_founder: d.review_status === 'escalated',
-    };
-  });
-
-  const closureBundleItems = [];
-  if (closureCase && ['pending', 'escalated', 'approved', 'rejected'].includes(closureCase.closure_review_status)) {
-    closureBundleItems.push({ id: `closure-${closureCase.id}`, type: 'closure', court_case_id: closureCase.id, action_type: 'closure_review', status: closureCase.closure_review_status, closure_documents: closureCase.closure_documents || [], submitted_by_id: closureCase.closure_submitted_by, submitted_by_name: closureCase.closure_submitted_by_name, submitted_at: closureCase.closure_submitted_at, _sortDate: closureCase.closure_reviewed_at || closureCase.closure_submitted_at, review_note: closureCase.closure_review_note, reviewed_by_name: closureCase.closure_reviewed_by_name, reviewed_at: closureCase.closure_reviewed_at, escalated_to_founder: closureCase.closure_review_status === 'escalated' });
-  }
-
-  const allItems = [
-    ...summaryReviewItems, ...noticeEditReviewItems, ...noticeReviewItems,
-    ...replyReviewItems, ...ackReviewItems, ...uploadedReplyReviewItems, ...closureBundleItems,
-  ].sort((a, b) => new Date(b._sortDate) - new Date(a._sortDate));
-
-  const { activeItems, historyItems } = useMemo(() => {
-    const active = [], completed = [];
-    allItems.forEach(item => { 
-      if (item.status === 'pending' || item.status === 'escalated') active.push(item); 
-      else completed.push(item); 
-    });
-    active.sort((a, b) => new Date(b._sortDate) - new Date(a._sortDate));
-    completed.sort((a, b) => new Date(b._sortDate) - new Date(a._sortDate));
-
-    // ✅ All completed items go directly to History — no more promoting into active
-    return { activeItems: active, historyItems: completed };
-  }, [allItems]);
-
-  const visibleActiveItems = activeItems;
-  
-  // History filters by BOTH status and type
-  const visibleHistoryItems = historyItems.filter(r => {
-    if (historyStatusFilter !== 'all' && r.status !== historyStatusFilter) return false;
-    if (historyFilter === 'notice_edit') return r.type === 'notice_edit';
-    if (historyFilter === 'reply') return r.type === 'reply' || r.type === 'uploaded_reply_bundle';
-    if (historyFilter === 'ack') return r.type === 'ack';
-    if (historyFilter === 'summary') return r.type === 'summary';
-    return true;
-  });
-
-  const historyCounts = {
-    all: historyItems.length,
-    approved: historyItems.filter((r) => r.status === 'approved').length,
-    rejected: historyItems.filter((r) => r.status === 'rejected').length,
-  };
-
-  const historyTypeCounts = {
-    all: historyItems.length,
-    notice_edit: historyItems.filter((r) => r.type === 'notice_edit').length,
-    reply: historyItems.filter(
-      (r) => r.type === 'reply' || r.type === 'uploaded_reply_bundle'
-    ).length,
-    ack: historyItems.filter((r) => r.type === 'ack').length,
-    summary: historyItems.filter((r) => r.type === 'summary').length,
-    closure: historyItems.filter((r) => r.type === 'closure').length,
-  };
+  if (loading) return <EmptyState icon="⏳" text="Loading reviews…" />;
 
   return (
-    <div style={{ fontFamily: SANS,display: 'flex',flexDirection: 'column',minHeight: 'calc(100vh - 280px)',}}>
-      
+    <div>
+      <ErrorBanner>{error}</ErrorBanner>
 
-      {loading && <div style={{ padding: 40, textAlign: 'center', color: C.muted, fontSize: 13, background: '#fff', borderRadius: 10, border: `1px solid ${C.border}` }}>Loading reviews...</div>}
-      {error && !loading && <div style={{ padding: 14, background: C.redBg, color: C.red, border: `1px solid ${C.redBorder}`, borderRadius: 10, fontSize: 12.5, fontWeight: 600 }}>{error}</div>}
+      <SectionTitle style={{ marginTop: 0 }}>Active reviews ({activeItems.length})</SectionTitle>
+      {activeItems.length === 0 ? (
+        <EmptyState icon="📋" text="No active reviews pending.">
+          <div style={{ fontSize: 12, marginTop: 4 }}>Completed items are listed in History below.</div>
+        </EmptyState>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{activeItems.map(renderActive)}</div>
+      )}
 
-      {!loading && !error && (
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          flex: 1,
-          background: '#fff',
-          border: `1px solid ${C.border}`,
-          borderRadius: 12,
-          overflow: 'hidden',
-          boxShadow: '0 1px 3px rgba(15,23,42,0.04)',
-        }}>
-          {/* ═══ TOP SECTION: Active Reviews ═══ */}
-          <div style={{
-            flex: 1,
-            padding: '20px',
-            overflowY: 'auto',
-            minHeight: 300,
-          }}>
-            {/* Section heading for Active */}
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              marginBottom: 14, paddingBottom: 10,
-              borderBottom: `1px solid ${C.borderLight}`,
-            }}>
-              <span style={{ fontSize: 13, fontWeight: 800, color: C.ink, textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                Active Reviews
-              </span>
-              <span style={{
-                fontSize: 10.5, fontWeight: 700, color: C.muted, background: C.bg,
-                border: `1px solid ${C.border}`, padding: '1px 8px', borderRadius: 99,
-              }}>
-                {visibleActiveItems.length}
-              </span>
-            </div>
+      <SectionTitle style={{ marginTop: 28 }}>History ({historyItems.length})</SectionTitle>
+      <div className="filter-bar">
+        <Segmented value={historyStatus} onChange={setHistoryStatus} options={[
+          { key: 'all', label: `All (${historyItems.length})` },
+          { key: 'approved', label: `Approved (${historyItems.filter((i) => i.status === 'approved').length})` },
+          { key: 'rejected', label: `Rejected (${historyItems.filter((i) => i.status === 'rejected').length})` },
+        ]} />
+        <div className="filter-field">
+          <Select value={historyType} onChange={setHistoryType}
+            options={TYPE_FILTERS.map((t) => ({ value: t.key, label: `${t.label} (${historyItems.filter(t.match).length})` }))} />
+        </div>
+      </div>
+      <Table
+        columns={historyColumns}
+        rows={visibleHistory}
+        getRowId={(i) => i.key}
+        onRowClick={setHistoryItem}
+        emptyMessage="No completed items match this filter."
+        pageSize={10}
+      />
 
-            {visibleActiveItems.length === 0 ? (
-              <div style={{
-                padding: '60px 20px', textAlign: 'center',
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
-              }}>
-                <div style={{ fontSize: 40, opacity: 0.5 }}>📋</div>
-                <div style={{ color: C.slate, fontSize: 13, fontWeight: 600 }}>
-                  No active reviews pending.
-                </div>
-                <div style={{ color: C.muted, fontSize: 11.5 }}>
-                  All reviewed items are shown in the History section below.
-                </div>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {visibleActiveItems.map((item) => renderItemCard(item, {
-                  busyId, canApproveReviewRequest, canRejectReviewRequest, handleApproveReviewRequest, handleRejectReviewRequest,
-                  canReviewDoc, handleApproveDoc, handleRejectDoc, handleOpenDocPdf,
-                  handleViewReply,
-                  canReviewClosure, handleApproveClosure, handleRejectClosure,
-                  handleOpenClosureDoc: (doc) => { if (doc?.file_url) window.open(doc.file_url, '_blank', 'noopener,noreferrer'); },
-                  caseData, user, setSelectedNoticeId,
-                }))}
-              </div>
-            )}
-          </div>
-
-          {/* ═══ BOTTOM SECTION: History (pinned to bottom of same card) ═══ */}
-          <div style={{
-            borderTop: `1px solid ${C.border}`,
-            background: historyOpen ? C.bgSoft : '#FAFBFD',
-            flexShrink: 0,
-          }}>
-            <div
-              onClick={() => setHistoryOpen(!historyOpen)}
-              style={{
-                padding: '14px 20px',
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                cursor: 'pointer',
-                transition: 'background .12s',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{
-                  fontSize: 14, color: C.slate,
-                  transform: historyOpen ? 'rotate(90deg)' : 'rotate(0deg)',
-                  transition: 'transform 0.15s',
-                }}>▶</span>
-                <span style={{ fontSize: 14 }}>📜</span>
-                <span style={{ fontSize: 13, fontWeight: 800, color: C.ink, textTransform: 'uppercase', letterSpacing: '.04em' }}>
-                  History
-                </span>
-                <span style={{ fontSize: 11, color: C.muted, fontWeight: 500 }}>
-                  (Completed)
-                </span>
-                <span style={{
-                  fontSize: 10.5, fontWeight: 700, color: C.muted, background: '#fff',
-                  border: `1px solid ${C.border}`, padding: '1px 8px', borderRadius: 99,
-                }}>
-                  {historyItems.length}
-                </span>
-              </div>
-              {historyOpen && (
-                <div
-                  style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {/* Status chips */}
-                  {[
-                    { key: 'all', label: 'All', count: historyCounts.all },
-                    { key: 'approved', label: 'Approved', count: historyCounts.approved },
-                    { key: 'rejected', label: 'Rejected', count: historyCounts.rejected },
-                  ].map((s) => {
-                    const active = historyStatusFilter === s.key;
-                    return (
-                      <button
-                        key={s.key}
-                        type="button"
-                        onClick={() => setHistoryStatusFilter(s.key)}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 5,
-                          padding: '4px 10px',
-                          borderRadius: 99,
-                          border: `1.5px solid ${active ? C.navy : C.border}`,
-                          background: active ? C.navy : '#fff',
-                          color: active ? '#fff' : C.slate,
-                          fontSize: 11,
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {s.label}
-                        <span
-                          style={{
-                            minWidth: 16,
-                            padding: '0 5px',
-                            borderRadius: 99,
-                            fontSize: 10,
-                            fontWeight: 800,
-                            background: active ? 'rgba(255,255,255,0.2)' : C.bg,
-                            color: active ? '#fff' : C.muted,
-                            textAlign: 'center',
-                          }}
-                        >
-                          {s.count}
-                        </span>
-                      </button>
-                    );
-                  })}
-
-                  {/* Type dropdown with counts in labels */}
-                  <select
-                    value={historyFilter}
-                    onChange={(e) => setHistoryFilter(e.target.value)}
-                    style={{
-                      padding: '5px 10px',
-                      border: `1px solid ${historyFilter !== 'all' ? C.navy : C.border}`,
-                      borderRadius: 6,
-                      background: historyFilter !== 'all' ? C.blueBg : '#fff',
-                      outline: 'none',
-                      fontSize: 11.5,
-                      fontWeight: 600,
-                      color: historyFilter !== 'all' ? C.navy : C.slate,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <option value="all">All Types ({historyTypeCounts.all})</option>
-                    <option value="notice_edit">Notice Info ({historyTypeCounts.notice_edit})</option>
-                    <option value="reply">Reply ({historyTypeCounts.reply})</option>
-                    <option value="ack">Acknowledgment ({historyTypeCounts.ack})</option>
-                    <option value="summary">Summary ({historyTypeCounts.summary})</option>
-                    <option value="closure">Closure ({historyTypeCounts.closure})</option>
-                  </select>
-                </div>
+      {historyItem && (
+        <Modal
+          isOpen size="lg" icon={ACTION_META[historyItem.type]?.icon}
+          title={itemTitle(historyItem)}
+          subtitle={`${historyItem.status === 'approved' ? 'Approved' : historyItem.status === 'rejected' ? 'Rejected' : 'Reviewed'} by ${historyItem.reviewed_by_name || 'Unknown'} · ${fmtDateTime(historyItem._sortDate)}`}
+          onClose={() => setHistoryItem(null)}
+          footer={
+            <>
+              {historyItem.type === 'reply' && replyAccess(historyItem) && (
+                <button className="btn btn-secondary" onClick={() => { openReply(historyItem); setHistoryItem(null); }}>Open reply editor</button>
               )}
-            </div>
-
-            {historyOpen && (
-              <div style={{
-                padding: '4px 12px 12px',
-                maxHeight: 400,
-                overflowY: 'auto',
-                borderTop: `1px solid ${C.borderLight}`,
-                background: '#fff',
-              }}>
-                {visibleHistoryItems.length === 0 ? (
-                  <div style={{
-                    padding: 30, textAlign: 'center',
-                    color: C.muted, fontSize: 12, fontStyle: 'italic',
-                  }}>
-                    No completed items match this filter.
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingTop: 8 }}>
-                    {visibleHistoryItems.map((item) => (
-                      <HistoryRow
-                        key={item.id}
-                        item={item}
-                        expanded={expandedHistoryId === item.id}
-                        onToggle={() => setExpandedHistoryId(expandedHistoryId === item.id ? null : item.id)}
-                        onViewReply={handleViewReply}
-                        onOpenDoc={handleOpenDocPdf}
-                        onOpenNotice={setSelectedNoticeId}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+              {historyItem.type === 'notice' && (
+                <button className="btn btn-secondary" onClick={() => { setNoticeId(historyItem.notice_id); setHistoryItem(null); }}>View notice</button>
+              )}
+              <button className="btn btn-primary" onClick={() => setHistoryItem(null)}>Close</button>
+            </>
+          }
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            <StatusPill status={historyItem.status} map={REVIEW_STATUS} />
+            <span style={{ fontSize: 12, color: MUT }}>Submitted by <b>{historyItem.submitted_by_name || 'Unknown'}</b></span>
           </div>
-        </div>
+          <ItemBody item={historyItem} />
+          <RejectionNote item={historyItem} />
+        </Modal>
       )}
 
-      {rejectTarget && <RejectModal review={rejectTarget} onClose={() => setRejectTarget(null)} onRejected={doReject} />}
-      {acceptTarget && <AcceptModal review={acceptTarget} onClose={() => setAcceptTarget(null)} onAccepted={doAccept} showEscalate={!isFounder} />}
-      {selectedNoticeId && <NoticeDetailModal noticeId={selectedNoticeId} canEdit={false} onClose={() => setSelectedNoticeId(null)} onUpdated={() => { setSelectedNoticeId(null); load(); onUpdated?.(); }} />}
-      {replyModalData && <ReplyEditorModal noticeId={replyModalData.noticeId} notice={replyModalData.notice} replyId={replyModalData.replyId} mode="review" currentUserId={user?.id} isAssignedMaker={(caseData?.makers || []).some((m) => m.id === user?.id)} isAssignedChecker={(caseData?.checkers || []).some((c) => c.id === user?.id)} isCeoRole={isFounder} onClose={() => setReplyModalData(null)} onSaved={() => { setReplyModalData(null); load(); onUpdated?.(); }} />}
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════════════════
-// ITEM CARD RENDERER
-// ══════════════════════════════════════════════════════════════════
-function renderItemCard(item, ctx) {
-  const { busyId, canApproveReviewRequest, canRejectReviewRequest, handleApproveReviewRequest, handleRejectReviewRequest, canReviewDoc, handleApproveDoc, handleRejectDoc, handleOpenDocPdf, handleViewReply, canReviewClosure, handleApproveClosure, handleRejectClosure, handleOpenClosureDoc, caseData, user, setSelectedNoticeId } = ctx;
-
-  if (item.type === 'summary') return <SummaryReviewCard key={item.id} review={item} busy={busyId === item._originalId} canApprove={canApproveReviewRequest(item)} canReject={canRejectReviewRequest(item)} onApprove={() => handleApproveReviewRequest({ ...item, id: item._originalId })} onReject={() => handleRejectReviewRequest({ ...item, id: item._originalId })} />;
-  if (item.type === 'notice_edit') return <NoticeEditReviewCard key={item.id} review={item} busy={busyId === item._originalId} canApprove={canApproveReviewRequest(item)} canReject={canRejectReviewRequest(item)} onApprove={() => handleApproveReviewRequest({ ...item, id: item._originalId })} onReject={() => handleRejectReviewRequest({ ...item, id: item._originalId })} />;
-  if (item.type === 'notice') return <NoticeReviewCard key={item.id} item={item} onView={() => setSelectedNoticeId(item.notice_id)} />;
-  
-  if (item.type === 'reply') {
-    const isAssignedChecker = (caseData?.checkers || []).some((c) => c.id === user?.id);
-    const isCeoRole = user?.role === 'Founder' || user?.role === 'Admin';
-    let canReviewThis = false; let buttonLabel = 'Review Reply →';
-    if (item.status === 'pending') canReviewThis = isAssignedChecker || isCeoRole;
-    else if (item.status === 'escalated') canReviewThis = isCeoRole;
-    else if (item.status === 'approved' || item.status === 'rejected') { canReviewThis = (caseData?.makers || []).some((m) => m.id === user?.id) || isAssignedChecker || isCeoRole; buttonLabel = 'View Reply →'; }
-    if (item.notice?.created_by === user?.id && item.status === 'pending') canReviewThis = false;
-    return <ReplyReviewCard key={item.id} item={item} onView={() => handleViewReply(item)} canReview={canReviewThis} buttonLabel={buttonLabel} />;
-  }
-
-  if (item.type === 'uploaded_reply_bundle') {
-    const canReview = canReviewDoc(item);
-    return <UploadedReplyBundleCard key={item.id} item={item} busy={busyId === item.doc_id} canApprove={canReview} canReject={canReview} onOpenPdf={(url) => handleOpenDocPdf(url)} onApprove={() => handleApproveDoc({ ...item, id: item.doc_id })} onReject={() => handleRejectDoc({ ...item, id: item.doc_id })} />;
-  }
-
-  if (item.type === 'ack') {
-    const canReview = canReviewDoc(item);
-    return <AckReviewCard key={item.id} item={item} busy={busyId === item.doc_id} canApprove={canReview} canReject={canReview} onOpenPdf={(url) => handleOpenDocPdf(url)} onApprove={() => handleApproveDoc({ ...item, id: item.doc_id })} onReject={() => handleRejectDoc({ ...item, id: item.doc_id })} />;
-  }
-
-  if (item.type === 'closure') {
-    const canReview = canReviewClosure(item);
-    return <ClosureBundleCard key={item.id} item={item} busy={busyId === item.court_case_id} canApprove={canReview} canReject={canReview} onOpenDoc={handleOpenClosureDoc} onApprove={() => handleApproveClosure({ ...item, id: item.court_case_id })} onReject={() => handleRejectClosure({ ...item, id: item.court_case_id })} />;
-  }
-  return null;
-}
-
-function UploadedReplyBundleCard({ item, busy, canApprove, canReject, onOpenPdf, onApprove, onReject }) {
-  const meta = ACTION_META.reply_review;
-  const statusMeta = STATUS_META[item.status] || STATUS_META.pending;
-  const submitterInitial = (item.submitted_by_name || 'U').charAt(0).toUpperCase();
-
-  return (
-    <div style={{ background: '#fff', border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, boxShadow: '0 1px 3px rgba(15,23,42,0.04)' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 8, flexShrink: 0, background: meta.bg, border: `1.5px solid ${meta.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, color: meta.color }}>{meta.icon}</div>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>Uploaded Reply Bundle</span>
-              {item.notice?.din_number && <span style={{ fontSize: 10, fontWeight: 700, color: C.slate, background: C.bg, padding: '1px 7px', borderRadius: 99, border: `1px solid ${C.border}` }}>DIN {item.notice.din_number}</span>}
-              <span style={{ fontSize: 9.5, fontWeight: 800, padding: '2px 8px', borderRadius: 999, background: statusMeta.bg, color: statusMeta.color, border: `1px solid ${statusMeta.border}`, textTransform: 'uppercase' }}>{statusMeta.label}</span>
-            </div>
-            <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Uploaded by <b style={{ color: C.slate }}>{item.submitted_by_name}</b> · {fmtDateTime(item.submitted_at)}</div>
-          </div>
-        </div>
-        <div style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0, background: `linear-gradient(135deg, ${C.navy}, ${C.navyMid})`, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>{submitterInitial}</div>
-      </div>
-
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 1fr auto',
-        gap: 12,
-        alignItems: 'start',
-        background: C.bgSoft,
-        border: `1px solid ${C.borderLight}`,
-        padding: 10,
-        borderRadius: 6,
-      }}>
-        {/* Main Reply column */}
-        <div>
-          <div style={{ fontSize: 9.5, fontWeight: 700, color: C.slate, textTransform: 'uppercase', marginBottom: 6 }}>Main Reply</div>
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-            padding: '4px 8px', background: '#fff',
-            border: `1px solid ${C.border}`, borderRadius: 4,
-            width: 260, maxWidth: '100%', height: 28, boxSizing: 'border-box',
-          }}>
-            <span style={{ fontSize: 12, flexShrink: 0 }}>📄</span>
-            <span
-              onClick={() => onOpenPdf(item.file_url)}
-              title={item.file_name}
-              style={{
-                fontSize: 10.5, fontWeight: 600, color: C.blue, cursor: 'pointer',
-                flex: 1, minWidth: 0,
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                textDecoration: 'underline',
-              }}
-            >
-              {item.file_name}
-            </span>
-            <button
-              onClick={() => handleDownloadFile(item.file_url, item.file_name)}
-              title="Download"
-              style={{
-                width: 18, height: 18, border: `1px solid ${C.borderLight}`,
-                borderRadius: 3, background: '#fff', color: C.slate, cursor: 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                padding: 0, fontSize: 10, flexShrink: 0,
-              }}
-            >⬇</button>
-          </div>
-        </div>  
-
-        {/* Supporting Docs column */}
-        <div>
-          <div style={{ fontSize: 9.5, fontWeight: 700, color: C.slate, textTransform: 'uppercase', marginBottom: 6 }}>
-            Supporting Docs ({item.support_docs?.length || 0})
-          </div>
-          {item.support_docs?.length > 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {item.support_docs.map((sd, i) => (
-                <div key={i} style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                  padding: '4px 8px', background: '#fff',
-                  border: `1px solid ${C.border}`, borderRadius: 4,
-                  width: 260, maxWidth: '100%', height: 28, boxSizing: 'border-box',
-                }}>
-                  <span style={{ fontSize: 12, flexShrink: 0 }}>📎</span>
-                  <span
-                    onClick={() => onOpenPdf(sd.file_url)}
-                    title={sd.file_name}
-                    style={{
-                      fontSize: 10.5, color: C.blue, cursor: 'pointer',
-                      flex: 1, minWidth: 0,
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                      textDecoration: 'underline',
-                    }}
-                  >
-                    {sd.file_name}
-                  </span>
-                  <button
-                    onClick={() => handleDownloadFile(sd.file_url, sd.file_name)}
-                    title="Download"
-                    style={{
-                      width: 18, height: 18, border: `1px solid ${C.borderLight}`,
-                      borderRadius: 3, background: '#fff', color: C.slate, cursor: 'pointer',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      padding: 0, fontSize: 10, flexShrink: 0,
-                    }}
-                  >⬇</button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <span style={{ fontSize: 10, color: C.muted, fontStyle: 'italic' }}>None</span>
-          )}
-        </div>
-
-        {/* Action buttons — Reject on top-right of Approve */}
-        {(canApprove || canReject) && (
-          <div style={{
-            display: 'flex', flexDirection: 'row', gap: 6,
-            alignSelf: 'flex-start', paddingTop: 18,
-          }}>
-            {canReject && (
-              <button onClick={onReject} disabled={busy} style={{
-                padding: '6px 14px', borderRadius: 4,
-                border: `1px solid ${C.redBorder}`, background: '#fff', color: C.red,
-                fontSize: 11, fontWeight: 700, cursor: busy ? 'wait' : 'pointer',
-              }}>Reject</button>
-            )}
-            {canApprove && (
-              <button onClick={onApprove} disabled={busy} style={{
-                padding: '6px 14px', borderRadius: 4, border: 'none',
-                background: busy ? C.muted : C.green, color: '#fff',
-                fontSize: 11, fontWeight: 700, cursor: busy ? 'wait' : 'pointer',
-                boxShadow: '0 2px 4px rgba(15,122,90,0.2)',
-              }}>{busy ? 'Working…' : '✓ Approve'}</button>
-            )}
-          </div>
-        )}
-      </div>
-
-      {item.status === 'rejected' && item.review_note && (
-        <div style={{ padding: '8px 12px', background: C.redBg, border: `1px solid ${C.redBorder}`, borderRadius: 5, fontSize: 11.5, color: C.red, marginTop: 12 }}>
-          <b>Rejection reason:</b> {item.review_note}
-        </div>
+      {rejectTarget && <RejectModal onClose={() => setRejectTarget(null)} onRejected={doReject} />}
+      {acceptTarget && <AcceptModal onClose={() => setAcceptTarget(null)} onAccepted={doAccept} showEscalate={!isFounder} />}
+      {noticeId && (
+        <NoticeDetailModal noticeId={noticeId} canEdit={false} onClose={() => setNoticeId(null)}
+          onUpdated={() => { load(); onUpdated?.(); }} />
       )}
-    </div>
-  );
-}
-
-function AckReviewCard({ item, busy, canApprove, canReject, onOpenPdf, onApprove, onReject }) {
-  const meta = ACTION_META.ack_review;
-  const statusMeta = STATUS_META[item.status] || STATUS_META.pending;
-  const submitterInitial = (item.submitted_by_name || 'U').charAt(0).toUpperCase();
-
-  return (
-    <div style={{ background: '#fff', border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, boxShadow: '0 1px 3px rgba(15,23,42,0.04)' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 8, flexShrink: 0, background: meta.bg, border: `1.5px solid ${meta.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, color: meta.color }}>{meta.icon}</div>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>Acknowledgment</span>
-              {item.notice?.din_number && <span style={{ fontSize: 10, fontWeight: 700, color: C.slate, background: C.bg, padding: '1px 7px', borderRadius: 99, border: `1px solid ${C.border}` }}>DIN {item.notice.din_number}</span>}
-              <span style={{ fontSize: 9.5, fontWeight: 800, padding: '2px 8px', borderRadius: 999, background: statusMeta.bg, color: statusMeta.color, border: `1px solid ${statusMeta.border}`, textTransform: 'uppercase' }}>{statusMeta.label}</span>
-            </div>
-            <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Uploaded by <b style={{ color: C.slate }}>{item.submitted_by_name}</b> · {fmtDateTime(item.submitted_at)}</div>
-          </div>
-        </div>
-        <div style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0, background: `linear-gradient(135deg, ${C.navy}, ${C.navyMid})`, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>{submitterInitial}</div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
-        <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: 8,
-          padding: '6px 10px', background: C.bgSoft,
-          border: `1px solid ${C.borderLight}`, borderRadius: 6,
-          width: 320, maxWidth: '100%', height: 32, boxSizing: 'border-box',
-        }}>
-          <span style={{ fontSize: 13, flexShrink: 0 }}>📄</span>
-          <div
-            onClick={() => onOpenPdf(item.file_url)}
-            title={item.file_name}
-            style={{
-              flex: 1, minWidth: 0,
-              fontSize: 11, fontWeight: 600, color: C.blue,
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              cursor: 'pointer', textDecoration: 'underline',
-            }}
-          >
-            {item.file_name}
-          </div>
-          <button
-            onClick={() => handleDownloadFile(item.file_url, item.file_name)}
-            title="Download"
-            style={{
-              width: 20, height: 20, border: `1px solid ${C.border}`,
-              borderRadius: 4, background: '#fff', color: C.slate, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              padding: 0, fontSize: 11, flexShrink: 0,
-            }}
-          >⬇</button>
-        </div>
-
-        {(canApprove || canReject) && (
-          <div style={{ display: 'flex', gap: 6 }}>
-            {canReject && <button onClick={onReject} disabled={busy} style={{ padding: '6px 14px', borderRadius: 6, border: `1px solid ${C.redBorder}`, background: '#fff', color: C.red, fontSize: 11, fontWeight: 700, cursor: busy ? 'wait' : 'pointer', opacity: busy ? 0.5 : 1 }}>Reject</button>}
-            {canApprove && <button onClick={onApprove} disabled={busy} style={{ padding: '6px 16px', borderRadius: 6, border: 'none', background: busy ? C.muted : C.green, color: '#fff', fontSize: 11, fontWeight: 700, cursor: busy ? 'wait' : 'pointer', boxShadow: '0 2px 4px rgba(15,122,90,0.2)' }}>{busy ? 'Working…' : '✓ Approve'}</button>}
-          </div>
-        )}
-      </div>
-
-      {item.status === 'rejected' && item.review_note && (
-        <div style={{ marginTop: 10, padding: '8px 12px', background: C.redBg, border: `1px solid ${C.redBorder}`, borderRadius: 7, fontSize: 12, color: C.red }}>
-          <div style={{ fontSize: 10, fontWeight: 800, marginBottom: 3, textTransform: 'uppercase' }}>Rejection reason</div>
-          <div style={{ whiteSpace: 'pre-wrap' }}>{item.review_note}</div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function HistoryRow({ item, expanded, onToggle, onViewReply, onOpenDoc, onOpenNotice }) {
-  const [hover, setHover] = useState(false);
-  const meta = ACTION_META[item.action_type] || ACTION_META.summary;
-  const statusMeta = STATUS_META[item.status] || STATUS_META.pending;
-
-  let title = meta.label;
-  if (item.type === 'reply') title = `Reply — ${item.title || 'Untitled'}`;
-  if (item.type === 'uploaded_reply_bundle') title = `Uploaded Reply — ${item.file_name}`;
-  if (item.type === 'ack') title = `Acknowledgment — ${item.file_name}`;
-  if (item.type === 'notice_edit') title = `Notice Info — DIN ${item.payload?.notice_din || '—'}`;
-  if (item.type === 'notice') title = `Notice — DIN ${item.din_number || '—'}`;
-
-  return (
-    <div style={{ background: '#fff', border: `1px solid ${expanded ? C.blueBorder : C.borderLight}`, borderRadius: 6, overflow: 'hidden', transition: 'all .12s' }}>
-      <div onClick={onToggle} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} style={{ padding: '8px 10px', cursor: 'pointer', background: hover || expanded ? C.bgSoft : '#fff', display: 'flex', alignItems: 'center', gap: 10, transition: 'all .12s' }}>
-        <div style={{ width: 24, height: 24, flexShrink: 0, borderRadius: 5, background: meta.bg, border: `1px solid ${meta.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: meta.color }}>{meta.icon}</div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: C.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
-          <div style={{ fontSize: 10, color: C.muted, marginTop: 1 }}>{item.reviewed_by_name || item.submitted_by_name} · {fmtRelativeTime(item._sortDate)}</div>
-        </div>
-        <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 4, background: statusMeta.bg, color: statusMeta.color, border: `1px solid ${statusMeta.border}`, textTransform: 'uppercase', letterSpacing: '0.04em', flexShrink: 0 }}>{statusMeta.label}</span>
-        <span style={{ fontSize: 10, color: C.muted, transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.15s', flexShrink: 0 }}>▾</span>
-      </div>
-
-      {expanded && (
-        <div style={{ padding: '10px 12px', borderTop: `1px solid ${C.borderLight}`, background: C.bgSoft }}>
-          
-          {item.type === 'uploaded_reply_bundle' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 8, background: '#fff', padding: 8, border: `1px solid ${C.border}`, borderRadius: 5 }}>
-              <div>
-                <div style={{ fontSize: 9, fontWeight: 700, color: C.slate, textTransform: 'uppercase', marginBottom: 4 }}>Main Reply</div>
-                <div style={{ fontSize: 11, color: C.blue, cursor: 'pointer', textDecoration: 'underline' }} onClick={() => onOpenDoc(item.file_url)}>📄 {item.file_name}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: 9, fontWeight: 700, color: C.slate, textTransform: 'uppercase', marginBottom: 4 }}>Supports</div>
-                {item.support_docs?.length > 0 ? item.support_docs.map((sd, i) => (
-                  <div key={i} onClick={() => onOpenDoc(sd.file_url)} style={{ fontSize: 11, color: C.blue, cursor: 'pointer', textDecoration: 'underline', marginBottom: 3 }}>📎 {sd.file_name}</div>
-                )) : <div style={{ fontSize: 10, color: C.muted, fontStyle: 'italic' }}>None</div>}
-              </div>
-            </div>
-          )}
-
-          {item.status === 'rejected' && item.review_note && <div style={{ padding: '6px 10px', background: C.redBg, border: `1px solid ${C.redBorder}`, borderRadius: 4, fontSize: 11, color: C.red, marginBottom: 8 }}><b>Reason:</b> {item.review_note}</div>}
-          
-          {item.type === 'notice_edit' && item.payload?.changed_fields?.length > 0 && (
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ fontSize: 10, fontWeight: 800, color: C.muted, textTransform: 'uppercase', marginBottom: 4 }}>Changed Fields</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                {item.payload.changed_fields.map((field) => (
-                  <div key={field} style={{ fontSize: 11.5, color: C.slate }}>
-                    <b>{field}:</b> <span style={{ color: C.red, textDecoration: 'line-through' }}>{item.payload.old_values?.[field] || '—'}</span>{' → '}<span style={{ color: C.green, fontWeight: 700 }}>{item.payload.new_values?.[field] || '—'}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {item.type === 'summary' && item.payload?.description && <div style={{ padding: '8px 10px', background: '#fff', border: `1px solid ${C.borderLight}`, borderRadius: 5, fontSize: 11.5, color: C.ink, whiteSpace: 'pre-wrap', marginBottom: 8 }}>{item.payload.description}</div>}
-          {item.type === 'reply' && <button onClick={() => onViewReply(item)} style={{ padding: '5px 12px', borderRadius: 4, border: 'none', background: C.navy, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Open Reply Editor →</button>}
-          {item.type === 'ack' && <button onClick={() => onOpenDoc(item.file_url)} style={{ padding: '5px 12px', borderRadius: 4, border: 'none', background: C.navy, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>Open Document →</button>}
-          {item.type === 'notice' && <button onClick={() => onOpenNotice(item.notice_id)} style={{ padding: '5px 12px', borderRadius: 4, border: 'none', background: C.navy, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>View Notice →</button>}
-
-          <div style={{ fontSize: 10, color: C.muted, marginTop: 6 }}>{item.status === 'approved' ? 'Approved by' : item.status === 'rejected' ? 'Rejected by' : 'Reviewed by'} <b>{item.reviewed_by_name || 'Unknown'}</b> on {fmtDateTime(item._sortDate)}</div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SummaryReviewCard({ review, busy, canApprove, canReject, onApprove, onReject }) {
-  const meta = ACTION_META.summary;
-  const statusMeta = STATUS_META[review.status] || STATUS_META.pending;
-  const submitterInitial = (review.submitted_by_name || 'U').charAt(0).toUpperCase();
-
-  return (
-    <div style={{ background: '#fff', border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, boxShadow: '0 1px 3px rgba(15,23,42,0.04)' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 8, flexShrink: 0, background: meta.bg, border: `1.5px solid ${meta.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, color: meta.color }}>{meta.icon}</div>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{meta.label}</span>
-              <span style={{ fontSize: 9.5, fontWeight: 800, padding: '2px 8px', borderRadius: 999, background: statusMeta.bg, color: statusMeta.color, border: `1px solid ${statusMeta.border}`, textTransform: 'uppercase' }}>{statusMeta.label}</span>
-            </div>
-            <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Submitted by <b style={{ color: C.slate }}>{review.submitted_by_name}</b> · {fmtDateTime(review.submitted_at)}</div>
-          </div>
-        </div>
-        <div style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0, background: `linear-gradient(135deg, ${C.navy}, ${C.navyMid})`, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>{submitterInitial}</div>
-      </div>
-      <div style={{ padding: '10px 12px', background: C.bgSoft, border: `1px solid ${C.borderLight}`, borderRadius: 7, marginBottom: (canApprove || canReject) ? 10 : 0 }}>
-        <div style={{ fontSize: 10, fontWeight: 800, color: C.muted, marginBottom: 4, textTransform: 'uppercase' }}>Summary Text</div>
-        <div style={{ fontSize: 12.5, color: C.ink, whiteSpace: 'pre-wrap' }}>{review.payload?.description || '(empty)'}</div>
-      </div>
-      {(canApprove || canReject) && (
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          {canReject && <button onClick={onReject} disabled={busy} style={{ padding: '7px 14px', borderRadius: 7, border: `1.5px solid ${C.redBorder}`, background: '#fff', color: C.red, fontSize: 12, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>Reject</button>}
-          {canApprove && <button onClick={onApprove} disabled={busy} style={{ padding: '7px 18px', borderRadius: 7, border: 'none', background: busy ? C.muted : `linear-gradient(135deg, ${C.green}, #0F7A5A)`, color: '#fff', fontSize: 12, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>✓ Approve</button>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function NoticeEditReviewCard({ review, busy, canApprove, canReject, onApprove, onReject }) {
-  const meta = ACTION_META.notice_edit;
-  const statusMeta = STATUS_META[review.status] || STATUS_META.pending;
-  const submitterInitial = (review.submitted_by_name || 'U').charAt(0).toUpperCase();
-  const changedFields = review.payload?.changed_fields || [];
-  const fmtValue = (val) => (val === null || val === undefined || val === '') ? '—' : String(val);
-
-  return (
-    <div style={{ background: '#fff', border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, boxShadow: '0 1px 3px rgba(15,23,42,0.04)' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 8, flexShrink: 0, background: meta.bg, border: `1.5px solid ${meta.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, color: meta.color }}>{meta.icon}</div>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{meta.label}</span>
-              <span style={{ fontSize: 9.5, fontWeight: 800, padding: '2px 8px', borderRadius: 999, background: statusMeta.bg, color: statusMeta.color, border: `1px solid ${statusMeta.border}`, textTransform: 'uppercase' }}>{statusMeta.label}</span>
-            </div>
-            <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>Submitted by <b style={{ color: C.slate }}>{review.submitted_by_name}</b> · {fmtDateTime(review.submitted_at)}</div>
-          </div>
-        </div>
-        <div style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0, background: `linear-gradient(135deg, ${C.navy}, ${C.navyMid})`, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>{submitterInitial}</div>
-      </div>
-      <div style={{ padding: '10px 12px', background: C.bgSoft, border: `1px solid ${C.borderLight}`, borderRadius: 7, marginBottom: (canApprove || canReject) ? 10 : 0 }}>
-        <div style={{ fontSize: 10, fontWeight: 800, color: C.muted, marginBottom: 8, textTransform: 'uppercase' }}>Changes Requested</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {changedFields.map(f => (
-            <div key={f} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12 }}>
-              <span style={{ fontSize: 10.5, fontWeight: 700, color: C.muted, minWidth: 100, textTransform: 'uppercase' }}>{f}</span>
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ color: C.red, textDecoration: 'line-through' }}>{fmtValue(review.payload?.old_values?.[f])}</span>
-                <span style={{ color: C.muted }}>→</span>
-                <span style={{ color: C.green, fontWeight: 700 }}>{fmtValue(review.payload?.new_values?.[f])}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-      {(canApprove || canReject) && (
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          {canReject && <button onClick={onReject} disabled={busy} style={{ padding: '7px 14px', borderRadius: 7, border: `1.5px solid ${C.redBorder}`, background: '#fff', color: C.red, fontSize: 12, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>Reject</button>}
-          {canApprove && <button onClick={onApprove} disabled={busy} style={{ padding: '7px 18px', borderRadius: 7, border: 'none', background: busy ? C.muted : `linear-gradient(135deg, ${C.green}, #0F7A5A)`, color: '#fff', fontSize: 12, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>✓ Approve</button>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function NoticeReviewCard({ item, onView }) {
-  const meta = ACTION_META.notice_review;
-  return (
-    <div style={{ background: '#fff', border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, boxShadow: '0 1px 3px rgba(15,23,42,0.04)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-        <div style={{ width: 32, height: 32, borderRadius: 8, background: meta.bg, border: `1.5px solid ${meta.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, color: meta.color }}>{meta.icon}</div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{meta.label}</div>
-          <div style={{ fontSize: 11, color: C.muted }}>Submitted by {item.submitted_by_name}</div>
-        </div>
-        <button onClick={onView} style={{ padding: '7px 18px', borderRadius: 7, border: 'none', background: `linear-gradient(135deg, ${C.navy}, ${C.blue})`, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>View Notice →</button>
-      </div>
-    </div>
-  );
-}
-
-function ReplyReviewCard({ item, onView, canReview, buttonLabel }) {
-  const meta = ACTION_META.reply_review;
-  const statusMeta = STATUS_META[item.status] || STATUS_META.pending;
-  return (
-    <div style={{ background: '#fff', border: `1px solid ${C.border}`, borderRadius: 10, padding: 14, boxShadow: '0 1px 3px rgba(15,23,42,0.04)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-        <div style={{ width: 32, height: 32, borderRadius: 8, background: meta.bg, border: `1.5px solid ${meta.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, color: meta.color }}>{meta.icon}</div>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{meta.label}</span>
-            <span style={{ fontSize: 9.5, fontWeight: 800, padding: '2px 8px', borderRadius: 999, background: statusMeta.bg, color: statusMeta.color, border: `1px solid ${statusMeta.border}`, textTransform: 'uppercase' }}>{statusMeta.label}</span>
-          </div>
-          <div style={{ fontSize: 11, color: C.muted }}>Submitted by {item.submitted_by_name}</div>
-        </div>
-        {canReview && <button onClick={onView} style={{ padding: '7px 18px', borderRadius: 7, border: 'none', background: `linear-gradient(135deg, ${C.navy}, ${C.blue})`, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>{buttonLabel}</button>}
-      </div>
-    </div>
-  );
-}
-
-
-function ClosureBundleCard({ item, busy, canApprove, canReject, onOpenDoc, onApprove, onReject }) {
-  const meta = ACTION_META.closure_review;
-  const statusMeta = STATUS_META[item.status] || STATUS_META.pending;
-  const submitterInitial = (item.submitted_by_name || 'U').charAt(0).toUpperCase();
-  const isDone = item.status === 'approved' || item.status === 'rejected';
-  const isEscalated = item.status === 'escalated';
-
-  const docsMap = {
-    order: item.closure_documents?.find(d => d.doc_type === 'order'),
-    demand_notice: item.closure_documents?.find(d => d.doc_type === 'demand_notice'),
-    computation_sheet: item.closure_documents?.find(d => d.doc_type === 'computation_sheet'),
-  };
-
-  const DOC_LABELS = {
-    order: 'Order Copy',
-    demand_notice: 'Demand Notice',
-    computation_sheet: 'Computation Sheet',
-  };
-
-  const borderColor =
-    item.status === 'approved' ? C.green :
-    item.status === 'rejected' ? C.red :
-    item.status === 'escalated' ? C.purple :
-    meta.color;
-
-  return (
-    <div style={{
-      background: '#fff',
-      border: `1px solid ${C.border}`,
-      borderRadius: 10,
-      padding: 14,
-      boxShadow: '0 1px 3px rgba(15,23,42,0.04)',
-      borderLeft: `4px solid ${borderColor}`,
-    }}>
-      {/* ─── HEADER: Icon + Title + Status Badge + Submitted + Avatar ─── */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
-          <div style={{
-            width: 32, height: 32, borderRadius: 8, flexShrink: 0,
-            background: meta.bg, border: `1.5px solid ${meta.border}`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 15, color: meta.color,
-          }}>
-            {meta.icon}
-          </div>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>{meta.label}</span>
-              <span style={{
-                fontSize: 9.5, fontWeight: 800, padding: '2px 8px', borderRadius: 999,
-                background: statusMeta.bg, color: statusMeta.color,
-                border: `1px solid ${statusMeta.border}`,
-                textTransform: 'uppercase', letterSpacing: '0.04em',
-              }}>
-                {statusMeta.label}
-              </span>
-            </div>
-            <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
-              Submitted by <b style={{ color: C.slate }}>{item.submitted_by_name || 'Unknown'}</b>
-              {item.submitted_at && ` · ${fmtDateTime(item.submitted_at)}`}
-            </div>
-          </div>
-        </div>
-
-        <div style={{
-          width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
-          background: `linear-gradient(135deg, ${C.navy}, ${C.navyMid})`,
-          color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 11, fontWeight: 700,
-        }}>
-          {submitterInitial}
-        </div>
-      </div>
-
-      {/* ─── FILES SECTION: Single Horizontal Row ─── */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', // ✅ Aligns files in a single row
-        gap: 12,
-        padding: '10px 12px', background: C.bgSoft,
-        border: `1px solid ${C.borderLight}`, borderRadius: 7,
-        marginBottom: (canApprove || canReject || item.review_note || isDone || isEscalated) ? 10 : 0,
-      }}>
-        {['order', 'demand_notice', 'computation_sheet'].map(dt => (
-          docsMap[dt] && (
-            <div
-              key={dt}
-              onClick={() => onOpenDoc(docsMap[dt])}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '7px 10px', background: '#fff',
-                border: `1px solid ${C.border}`, borderRadius: 5, cursor: 'pointer',
-                transition: 'all .12s',
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = C.blueBg; e.currentTarget.style.borderColor = C.blueBorder; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = C.border; }}
-            >
-              <span style={{ fontSize: 14 }}>📄</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{
-                  fontSize: 9.5, fontWeight: 800, color: C.slate,
-                  textTransform: 'uppercase', letterSpacing: '.04em',
-                }}>
-                  {DOC_LABELS[dt]}
-                </div>
-                <div style={{
-                  fontSize: 11.5, fontWeight: 600, color: C.blue,
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  textDecoration: 'underline', marginTop: 1,
-                }}>
-                  {docsMap[dt].file_name}
-                </div>
-              </div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDownloadFile(docsMap[dt].file_url, docsMap[dt].file_name);
-                }}
-                title="Download"
-                style={{
-                  width: 24, height: 24, border: `1px solid ${C.border}`, borderRadius: 4,
-                  background: '#fff', color: C.slate, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}
-              >⬇</button>
-            </div>
-          )
-        ))}
-      </div>
-
-      {/* ─── REVIEWER INFO (Approved/Rejected/Escalated) below the files ─── */}
-      {isDone && (
-        <div style={{
-          fontSize: 11.5,
-          color: item.status === 'approved' ? C.green : C.red,
-          fontWeight: 600,
-          marginTop: 4,
-          marginBottom: (canApprove || canReject || item.review_note) ? 10 : 0,
-        }}>
-          {item.status === 'approved' ? '✓ Approved' : '✕ Rejected'}
-          {item.reviewed_by_name && (
-            <> by <b style={{ color: C.ink }}>{item.reviewed_by_name}</b></>
-          )}
-          {item.reviewed_at && ` · ${fmtDateTime(item.reviewed_at)}`}
-          {!item.reviewed_by_name && !item.reviewed_at && (
-            <span style={{ fontStyle: 'italic', color: C.muted }}> · reviewer details not recorded</span>
-          )}
-        </div>
-      )}
-
-      {isEscalated && (
-        <div style={{
-          fontSize: 11.5, color: C.purple, fontWeight: 600, marginTop: 4,
-          marginBottom: (canApprove || canReject) ? 10 : 0,
-        }}>
-          ↑ Moved to CEO
-          {item.reviewed_by_name && <> · last action by <b style={{ color: C.ink }}>{item.reviewed_by_name}</b></>}
-          {item.reviewed_at && ` · ${fmtDateTime(item.reviewed_at)}`}
-        </div>
-      )}
-
-      {/* ─── REJECTION REASON ─── */}
-      {item.status === 'rejected' && item.review_note && (
-        <div style={{
-          marginBottom: (canApprove || canReject) ? 10 : 0,
-          padding: '8px 12px', background: C.redBg, border: `1px solid ${C.redBorder}`,
-          borderRadius: 7, fontSize: 12, color: C.red,
-        }}>
-          <div style={{ fontSize: 10, fontWeight: 800, marginBottom: 3, textTransform: 'uppercase' }}>
-            Rejection reason
-          </div>
-          <div style={{ whiteSpace: 'pre-wrap' }}>{item.review_note}</div>
-        </div>
-      )}
-
-      {/* ─── ACTION BUTTONS ─── */}
-      {(canApprove || canReject) && (
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
-          {canReject && (
-            <button onClick={onReject} disabled={busy} style={{
-              padding: '7px 14px', borderRadius: 7,
-              border: `1.5px solid ${C.redBorder}`, background: '#fff', color: C.red,
-              fontSize: 12, fontWeight: 700, cursor: busy ? 'wait' : 'pointer',
-            }}>
-              Reject
-            </button>
-          )}
-          {canApprove && (
-            <button onClick={onApprove} disabled={busy} style={{
-              padding: '7px 18px', borderRadius: 7, border: 'none',
-              background: busy ? C.muted : `linear-gradient(135deg, ${C.green}, #0F7A5A)`,
-              color: '#fff', fontSize: 12, fontWeight: 700,
-              cursor: busy ? 'wait' : 'pointer',
-            }}>
-              {busy ? 'Working…' : '✓ Approve & Close'}
-            </button>
-          )}
-        </div>
+      {replyModal && (
+        <ReplyEditorModal
+          noticeId={replyModal.noticeId} notice={replyModal.notice} replyId={replyModal.replyId} mode="review"
+          currentUserId={user?.id} isAssignedMaker={isMaker} isAssignedChecker={isChecker} isCeoRole={isFounder}
+          onClose={() => setReplyModal(null)}
+          onSaved={() => { setReplyModal(null); load(); onUpdated?.(); }}
+        />
       )}
     </div>
   );
