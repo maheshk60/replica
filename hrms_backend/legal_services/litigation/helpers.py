@@ -83,7 +83,7 @@ def update_notice_status_from_workflow(notice):
 
     has_pending_edit = ReviewRequest.objects.filter(
         court_case=notice.court_case,
-        action_type='notice_edit',
+        action_type=['notice_edit', 'extension'],
         status__in=['pending', 'escalated'],
         payload__notice_id=notice.id,
     ).exists()

@@ -73,7 +73,7 @@ function downloadAsPdfViaPrint(contentHtml, filename, onDone, onError) {
     font-size: 12pt;
     line-height: 1.5;
     color: #1a1a2e;
-    background: #fff;
+    background: #000000;
   }
   body { padding: 0; }
   h1, h2, h3 { color: #1a1a2e; margin: 0.6em 0 0.3em; }
@@ -1606,8 +1606,37 @@ export default function ReplyEditorModal({ noticeId, notice, replyId, mode = 'ed
           />
           <div className="divider" />
           <span style={{fontSize:10,color:'#999',marginRight:2}}>Font</span>
-          <Select value={fontFamily} onChange={(val) => { isDropdownOpenRef.current = false; applyFontFamily(val); }} onDropdownVisibleChange={(open) => { isDropdownOpenRef.current = open; }} disabled={!canEditContent} size="small" style={{ width: 140 }} popupMatchSelectWidth={false} getPopupContainer={t=>t.parentNode} options={[{value:"'Times New Roman', Times, serif",label:'Times New Roman'},{value:"'Calibri', sans-serif",label:'Calibri'},{value:"'Arial', sans-serif",label:'Arial'},{value:"'Georgia', serif",label:'Georgia'},{value:"'Verdana', sans-serif",label:'Verdana'},{value:"'Courier New', monospace",label:'Courier New'}]} />
-          <Select value={fontSize} onChange={(val) => { isDropdownOpenRef.current = false; applyFontSize(val); }} onDropdownVisibleChange={(open) => { isDropdownOpenRef.current = open; }} disabled={!canEditContent} size="small" style={{ width: 68 }} getPopupContainer={t=>t.parentNode} options={['9pt','10pt','11pt','12pt','13pt','14pt','16pt','18pt','24pt'].map(s=>({value:s,label:s}))} />
+          <Select 
+            value={fontFamily} 
+            onChange={(val) => { isDropdownOpenRef.current = false; applyFontFamily(val); }} 
+            onDropdownVisibleChange={(open) => { isDropdownOpenRef.current = open; }} 
+            disabled={!canEditContent} 
+            size="small" 
+            style={{ width: 140, color: '#000000' }} 
+            dropdownStyle={{ color: '#000000' }}
+            popupMatchSelectWidth={false} 
+            getPopupContainer={t => t.parentNode} 
+            options={[
+              {value:"'Times New Roman', Times, serif",label:'Times New Roman'},
+              {value:"'Calibri', sans-serif",label:'Calibri'},
+              {value:"'Arial', sans-serif",label:'Arial'},
+              {value:"'Georgia', serif",label:'Georgia'},
+              {value:"'Verdana', sans-serif",label:'Verdana'},
+              {value:"'Courier New', monospace",label:'Courier New'}
+            ]} 
+          />
+
+          <Select 
+            value={fontSize} 
+            onChange={(val) => { isDropdownOpenRef.current = false; applyFontSize(val); }} 
+            onDropdownVisibleChange={(open) => { isDropdownOpenRef.current = open; }} 
+            disabled={!canEditContent} 
+            size="small" 
+            style={{ width: 68, color: '#000000' }} 
+            dropdownStyle={{ color: '#000000' }}
+            getPopupContainer={t => t.parentNode} 
+            options={['9pt','10pt','11pt','12pt','13pt','14pt','16pt','18pt','24pt'].map(s=>({value:s,label:s}))} 
+          />
           <div style={{display:'flex',alignItems:'center',gap:1}}>
             <button onMouseDown={e=>e.preventDefault()} onClick={() => applyTextColor(textColor)} disabled={!canEditContent} style={{ padding:'2px 5px', borderRadius:'3px 0 0 3px', border:'1px solid rgba(255,255,255,0.2)', borderRight:'none', background:'transparent', cursor:canEditContent?'pointer':'not-allowed', display:'flex', alignItems:'center', height:26, minWidth:0 }}><span style={{ fontSize:14, fontWeight:900, color:textColor, textShadow:'0 0 1px rgba(255,255,255,0.3)', borderBottom:`3px solid ${textColor}`, paddingBottom:1 }}>A</span></button>
             <label style={{ display:'flex', alignItems:'center', justifyContent:'center', width:20, height:26, border:'1px solid rgba(255,255,255,0.2)', borderRadius:'0 3px 3px 0', background:'transparent', cursor:canEditContent?'pointer':'not-allowed', margin:0, padding:0, position:'relative', opacity:canEditContent?1:0.35 }}><span style={{fontSize:8,color:'#ccc'}}>▼</span><input type="color" value={textColor} onChange={(e) => { setTextColor(e.target.value); setTimeout(() => applyTextColor(e.target.value), 50); }} disabled={!canEditContent} style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', opacity:0, cursor:canEditContent?'pointer':'not-allowed' }} /></label>

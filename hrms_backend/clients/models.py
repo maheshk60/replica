@@ -493,23 +493,42 @@ class Task(models.Model):
 
 User = settings.AUTH_USER_MODEL
 
+# class TaskAssignment(models.Model):
+#     task = models.ForeignKey(
+#         Task,
+#         on_delete=models.CASCADE,
+#         related_name="assignments"
+#     )
+#     user = models.ForeignKey(
+#         settings.AUTH_USER_MODEL,
+#         on_delete=models.CASCADE,
+#         related_name="task_assignments"
+#     )
+#     assigned_by = models.ForeignKey(
+#         settings.AUTH_USER_MODEL,
+#         on_delete=models.SET_NULL,
+#         null=True,
+#         related_name="assigned_tasks_by_me"
+#     )
+#     assigned_at = models.DateTimeField(auto_now_add=True)
+#     is_active = models.BooleanField(default=True)
+
+#     class Meta:
+#         unique_together = ("task", "user")
+
+
 class TaskAssignment(models.Model):
-    task = models.ForeignKey(
-        Task,
-        on_delete=models.CASCADE,
-        related_name="assignments"
-    )
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name="task_assignments"
-    )
-    assigned_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        related_name="assigned_tasks_by_me"
-    )
+    ROLE_MAKER = 'maker'
+    ROLE_CHECKER = 'checker'
+    ROLE_CHOICES = [
+        (ROLE_MAKER, 'Maker'),
+        (ROLE_CHECKER, 'Checker'),
+    ]
+
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="assignments")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="task_assignments")
+    role = models.CharField(max_length=10, choices=ROLE_CHOICES, null=True, blank=True)  # ← NEW
+    assigned_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="assigned_tasks_by_me")
     assigned_at = models.DateTimeField(auto_now_add=True)
     is_active = models.BooleanField(default=True)
 

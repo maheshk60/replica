@@ -157,6 +157,10 @@ def create_litigation_job_from_task(sender, instance, created, **kwargs):
 
     job = model_cls.objects.create(**create_kwargs)
 
+    #added this line 
+    if model_cls in (TDSLitigation, IncomeTaxLitigation, MCACase):
+        _sync_task_mc_to_legal_jobs(instance)
+
     litigation_type_map = {
         TDSLitigation: 'tds',
         IncomeTaxLitigation: 'income-tax',
@@ -195,3 +199,32 @@ def create_litigation_job_from_task(sender, instance, created, **kwargs):
         )
     except Exception:
         pass
+
+
+
+# ══════════════════════════════════════════════════════════════════
+# Sync Maker/Checker from Task → Legal Jobs
+# ══════════════════════════════════════════════════════════════════
+from clients.models import TaskAssignment
+from django.db.models.signals import post_save
+
+def _sync_task_mc_to_legal_jobs(task):
+    if not task:
+        return
+    active = TaskAssignment.objects.filter(task=task, is_active=True)
+    maker_ids   = list(active.filter(role='maker').values_list('user_id', flat=True))
+    checker_ids = list(active.filter(role='checker').values_list('user_id', flat=True))
+    if not maker_ids and not checker_ids:
+        return
+    legal_jobs = []
+    for rel in ['tds_litigation_jobs', 'income_tax_litigation_jobs', 'mca_cases']:
+        if hasattr(task, rel):
+            legal_jobs.extend(getattr(task, rel).all())
+    for job in legal_jobs:
+        job.makers.set(maker_ids)
+        job.checkers.set(checker_ids)
+
+@receiver(post_save, sender=TaskAssignment)
+def sync_mc_on_assignment_save(sender, instance, **kwargs):
+    if instance.role:
+        _sync_task_mc_to_legal_jobs(instance.task)

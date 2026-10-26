@@ -261,98 +261,99 @@ function LegalAuditDetail({ log }) {
 
   return (
     <>
-        {type === 'case_created' && (
-          <div style={{ ...detailBox, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            {lbl('Task ID')}<FileTag>📋 {nv.task_id || 'N/A'}</FileTag>
-            {nv.client_name && <span style={{ fontSize: 12, color: MUT }}>Client: <b style={{ color: INK }}>{nv.client_name}</b></span>}
+      {type === 'case_created' && (
+        <div style={{ ...detailBox, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          {lbl('Task ID')}<FileTag>📋 {nv.task_id || 'N/A'}</FileTag>
+          {nv.client_name && <span style={{ fontSize: 12, color: MUT }}>Client: <b style={{ color: INK }}>{nv.client_name}</b></span>}
+        </div>
+      )}
+
+      {isReply && (replyFiles.length > 0 || supFiles.length > 0) && (
+        <div style={{ ...detailBox, display: 'grid', gridTemplateColumns: 'auto 1fr auto 1fr', gap: '4px 12px' }}>
+          {lbl('Reply')}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{replyFiles.length ? replyFiles.map((f) => <FileTag key={f}>📄 {f}{mark}</FileTag>) : '—'}</div>
+          {lbl('Sup doc')}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{supFiles.length ? supFiles.map((f) => <FileTag key={f} tone="amber">📎 {f}{mark}</FileTag>) : '—'}</div>
+          {nv.notice_din && <div style={{ gridColumn: '1 / -1', fontSize: 11, color: MUT }}>DIN: {nv.notice_din}</div>}
+        </div>
+      )}
+
+      {['court_notice_uploaded', 'court_notice_deleted'].includes(type) && nv.file_name && (
+        <div style={{ ...detailBox, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          {lbl('Notice file')}<FileTag>📋 {nv.file_name}{type === 'court_notice_deleted' && ' ✕'}</FileTag>
+          {nv.notice_din && <span style={{ fontSize: 11, color: MUT }}>DIN: {nv.notice_din}</span>}
+        </div>
+      )}
+
+      {isAck && (ackShown.length > 0 || nv.file_name) && (
+        <div style={{ ...detailBox, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          {lbl('Acknowledgment')}
+          {(ackShown.length ? ackShown : [nv.file_name]).map((f) => <FileTag key={f} tone="purple">📥 {f}{mark}</FileTag>)}
+          {nv.notice_din && <span style={{ fontSize: 11, color: MUT }}>DIN: {nv.notice_din}</span>}
+        </div>
+      )}
+
+      {type === 'notice_created' && (
+        <div style={{ ...detailBox, display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6, fontSize: 12 }}>
+          {[['DIN', nv.din_number], ['Officer', nv.officer], ['Notice Date', nv.notice_date], ['Due Date', nv.due_date]]
+            .filter(([, v]) => v).map(([k, v]) => <span key={k}><b style={{ color: MUT }}>{k}:</b> {v}</span>)}
+        </div>
+      )}
+
+      {Object.keys(closureDocs).length > 0 && (
+        <div style={{ ...detailBox, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {CLOSURE_DOC_TYPES.filter((t) => closureDocs[t.key]).map((t) => <FileTag key={t.key}>{t.icon} {t.label}: {closureDocs[t.key]}</FileTag>)}
+        </div>
+      )}
+
+      {type.includes('rejected') && reason && (
+        <div style={{ ...detailBox, background: REDL, borderColor: REDB, color: RED, fontSize: 12 }}><b>Reason:</b> {reason}</div>
+      )}
+
+      {type.includes('notice_extension') && (
+        <div style={{ ...detailBox }}>
+          <div style={{ display: 'flex', gap: 16, marginBottom: 8 }}>
+            <div><span style={{ fontSize: 11, color: MUT }}>Old Due Date:</span> <span style={{ fontSize: 12, textDecoration: 'line-through', color: RED }}>{fmtDate(nv.old_date) || '—'}</span></div>
+            <div><span style={{ fontSize: 11, color: MUT }}>Extended To:</span> <span style={{ fontSize: 12, fontWeight: 700, color: P }}>{fmtDate(nv.new_date)}</span></div>
           </div>
-        )}
-
-        {isReply && (replyFiles.length > 0 || supFiles.length > 0) && (
-          <div style={{ ...detailBox, display: 'grid', gridTemplateColumns: 'auto 1fr auto 1fr', gap: '4px 12px' }}>
-            {lbl('Reply')}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{replyFiles.length ? replyFiles.map((f) => <FileTag key={f}>📄 {f}{mark}</FileTag>) : '—'}</div>
-            {lbl('Sup doc')}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{supFiles.length ? supFiles.map((f) => <FileTag key={f} tone="amber">📎 {f}{mark}</FileTag>) : '—'}</div>
-            {nv.notice_din && <div style={{ gridColumn: '1 / -1', fontSize: 11, color: MUT }}>DIN: {nv.notice_din}</div>}
-          </div>
-        )}
-
-        {['court_notice_uploaded', 'court_notice_deleted'].includes(type) && nv.file_name && (
-          <div style={{ ...detailBox, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            {lbl('Notice file')}<FileTag>📋 {nv.file_name}{type === 'court_notice_deleted' && ' ✕'}</FileTag>
-            {nv.notice_din && <span style={{ fontSize: 11, color: MUT }}>DIN: {nv.notice_din}</span>}
-          </div>
-        )}
-
-        {isAck && (ackShown.length > 0 || nv.file_name) && (
-          <div style={{ ...detailBox, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            {lbl('Acknowledgment')}
-            {(ackShown.length ? ackShown : [nv.file_name]).map((f) => <FileTag key={f} tone="purple">📥 {f}{mark}</FileTag>)}
-            {nv.notice_din && <span style={{ fontSize: 11, color: MUT }}>DIN: {nv.notice_din}</span>}
-          </div>
-        )}
-
-        {type === 'notice_created' && (
-          <div style={{ ...detailBox, display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6, fontSize: 12 }}>
-            {[['DIN', nv.din_number], ['Officer', nv.officer], ['Notice Date', nv.notice_date], ['Due Date', nv.due_date]]
-              .filter(([, v]) => v).map(([k, v]) => <span key={k}><b style={{ color: MUT }}>{k}:</b> {v}</span>)}
-          </div>
-        )}
-
-        {Object.keys(closureDocs).length > 0 && (
-          <div style={{ ...detailBox, display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {CLOSURE_DOC_TYPES.filter((t) => closureDocs[t.key]).map((t) => <FileTag key={t.key}>{t.icon} {t.label}: {closureDocs[t.key]}</FileTag>)}
-          </div>
-        )}
-
-        {type.includes('rejected') && reason && (
-          <div style={{ ...detailBox, background: REDL, borderColor: REDB, color: RED, fontSize: 12 }}><b>Reason:</b> {reason}</div>
-        )}
-
-        {type.includes('notice_extension') && (
-          <div style={{ ...detailBox }}>
-            <div style={{ display: 'flex', gap: 16, marginBottom: 8 }}>
-              <div><span style={{ fontSize: 11, color: MUT }}>Old Due Date:</span> <span style={{ fontSize: 12, textDecoration: 'line-through', color: RED }}>{fmtDate(nv.old_date) || '—'}</span></div>
-              <div><span style={{ fontSize: 11, color: MUT }}>Extended To:</span> <span style={{ fontSize: 12, fontWeight: 700, color: P }}>{fmtDate(nv.new_date)}</span></div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div>
-                <span style={{ fontSize: 11, fontWeight: 700, color: MUT }}>Reply Files</span>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
-                  {nv.reply_docs?.length ? nv.reply_docs.map(d => <FileTag key={d.id}>📄 {d.file_name}{mark}</FileTag>) : <span style={{ fontSize: 11, color: MUT, fontStyle: 'italic' }}>None</span>}
-                </div>
-              </div>
-              <div>
-                <span style={{ fontSize: 11, fontWeight: 700, color: MUT }}>Ack Files</span>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
-                  {nv.ack_docs?.length ? nv.ack_docs.map(d => <FileTag key={d.id} tone="purple">📥 {d.file_name}{mark}</FileTag>) : <span style={{ fontSize: 11, color: MUT, fontStyle: 'italic' }}>None</span>}
-                </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+            <div>
+              <span style={{ fontSize: 11, fontWeight: 700, color: MUT }}>Reply Files</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
+                {nv.reply_docs?.length ? nv.reply_docs.map(d => <FileTag key={d.id}>📄 {d.file_name}{mark}</FileTag>) : <span style={{ fontSize: 11, color: MUT, fontStyle: 'italic' }}>None</span>}
               </div>
             </div>
-            {nv.notes && <div style={{ fontSize: 11, fontStyle: 'italic', marginTop: 8 }}>"{nv.notes}"</div>}
-          </div>
-        )}
-
-
-        {type === 'info_update' && Object.keys(nv).length > 0 && (
-          <div style={{ ...detailBox, display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {Object.keys(nv).filter((k) => !['rejection_reason', 'reason', 'doc_type', 'notice_din'].includes(k)).map((k) => (
-              <div key={k} style={{ fontSize: 12, display: 'flex', gap: 6 }}>
-                <span style={{ width: 130, fontWeight: 600, color: INK, textTransform: 'capitalize' }}>{k.replace(/_/g, ' ')}</span>
-                <span style={{ color: RED, textDecoration: 'line-through' }}>{String(ov[k] || 'None')}</span>
-                <span style={{ color: MUT }}>→</span>
-                <span style={{ color: GR, fontWeight: 600 }}>{String(nv[k] || 'None')}</span>
+            <div>
+              <span style={{ fontSize: 11, fontWeight: 700, color: MUT }}>Adjournment Notice</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
+                {nv.adjourn_docs?.length ? nv.adjourn_docs.map(d => <FileTag key={d.id} tone="amber">📎 {d.file_name}{mark}</FileTag>) : <span style={{ fontSize: 11, color: MUT, fontStyle: 'italic' }}>None</span>}
               </div>
-            ))}
+            </div>
+            <div>
+              <span style={{ fontSize: 11, fontWeight: 700, color: MUT }}>Ack Files</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
+                {nv.ack_docs?.length ? nv.ack_docs.map(d => <FileTag key={d.id} tone="purple">📥 {d.file_name}{mark}</FileTag>) : <span style={{ fontSize: 11, color: MUT, fontStyle: 'italic' }}>None</span>}
+              </div>
+            </div>
           </div>
-        )}
 
-        {/* {type === 'assignment' && (
-          <div style={{ ...detailBox, fontSize: 12.5, color: INK, fontWeight: 600 }}>
-            {nv.summary || log.title || 'Team updated'}
-          </div>
-        )} */}
+          {nv.notes && <div style={{ fontSize: 11, fontStyle: 'italic', marginTop: 8 }}>"{nv.notes}"</div>}
+        </div>
+      )}
+
+
+      {type === 'info_update' && Object.keys(nv).length > 0 && (
+        <div style={{ ...detailBox, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {Object.keys(nv).filter((k) => !['rejection_reason', 'reason', 'doc_type', 'notice_din'].includes(k)).map((k) => (
+            <div key={k} style={{ fontSize: 12, display: 'flex', gap: 6 }}>
+              <span style={{ width: 130, fontWeight: 600, color: INK, textTransform: 'capitalize' }}>{k.replace(/_/g, ' ')}</span>
+              <span style={{ color: RED, textDecoration: 'line-through' }}>{String(ov[k] || 'None')}</span>
+              <span style={{ color: MUT }}>→</span>
+              <span style={{ color: GR, fontWeight: 600 }}>{String(nv[k] || 'None')}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </>
   );
 }

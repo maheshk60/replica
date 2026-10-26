@@ -2507,6 +2507,75 @@ class TaskViewSet(viewsets.ModelViewSet):
         return Response(history)
 
     # ── perform_create ────────────────────────────────────────────────────────
+    # def perform_create(self, serializer):
+    #     user = self.request.user
+    #     role = (getattr(user, 'role', '') or '').lower()
+
+    #     with transaction.atomic():
+    #         client      = serializer.validated_data.get('client')
+    #         sub_service = serializer.validated_data.get('sub_service')
+    #         period      = serializer.validated_data.get('period')
+
+    #         if client and sub_service and period:
+    #             existing = Task.objects.select_for_update().filter(
+    #                 client=client,
+    #                 sub_service=sub_service,
+    #                 period=period,
+    #             ).first()
+    #             if existing:
+    #                 raise DRFValidationError({
+    #                     'detail': f'A task already exists for this client and period '
+    #                               f'(Task ID: {existing.task_id}).'
+    #                 })
+
+    #         next_serial    = get_next_task_id_serial_number(date.today())
+    #         financial_year = get_financial_year(date.today())
+    #         task_id        = f'CKPSCA-STT-{next_serial:04d}-{financial_year}'
+
+    #         task = serializer.save(created_by=user, task_id=task_id)
+
+    #         assigned_users = self.request.data.getlist('assigned_users')
+    #         if role in ASSIGN_ROLES and assigned_users:
+    #             for uid in assigned_users:
+    #                 TaskAssignment.objects.create(
+    #                     task=task, user_id=uid,
+    #                     is_active=True, assigned_by=user,
+    #                 )
+    #                 TaskAssignmentHistory.objects.create(
+    #                     task=task, assigned_from=None,
+    #                     assigned_to_id=uid, assigned_by=user,
+    #                 )
+
+    #         # ── Recurring Task checkbox ─────────────────────────────────
+    #         # Adds this client/sub_service to the recurring services list
+    #         # (ClientGroupService), which create_monthly_tasks() reads from.
+    #         # due_date is a day/month TEMPLATE (year 2000 placeholder).
+    #         is_recurring = str(self.request.data.get('is_recurring', '')).lower() == 'true'
+    #         if is_recurring:
+    #             PERIOD_TYPE_MAP = {
+    #                 'monthly': 'Monthly', 'quarterly': 'Quarterly',
+    #                 'half_yearly': 'Half-Yearly', 'annually': 'Annually',
+    #             }
+    #             period_value = PERIOD_TYPE_MAP.get(self.request.data.get('period_type'))
+    #             due_date     = serializer.validated_data.get('due_date')
+
+    #             if period_value and due_date and client and sub_service:
+    #                 already_active = ClientGroupService.objects.filter(
+    #                     client=client, sub_service=sub_service, is_active=True,
+    #                 ).exists()
+    #                 if not already_active:
+    #                     client_group = client.client_groups_membership.first()
+    #                     if client_group:
+    #                         ClientGroupService.objects.create(
+    #                             client_group=client_group,
+    #                             client=client,
+    #                             main_service=sub_service.main_service,
+    #                             sub_service=sub_service,
+    #                             period=period_value,
+    #                             due_date=date(2000, due_date.month, due_date.day),
+    #                         )
+
+
     def perform_create(self, serializer):
         user = self.request.user
         role = (getattr(user, 'role', '') or '').lower()
@@ -2518,9 +2587,7 @@ class TaskViewSet(viewsets.ModelViewSet):
 
             if client and sub_service and period:
                 existing = Task.objects.select_for_update().filter(
-                    client=client,
-                    sub_service=sub_service,
-                    period=period,
+                    client=client, sub_service=sub_service, period=period,
                 ).first()
                 if existing:
                     raise DRFValidationError({
@@ -2531,9 +2598,9 @@ class TaskViewSet(viewsets.ModelViewSet):
             next_serial    = get_next_task_id_serial_number(date.today())
             financial_year = get_financial_year(date.today())
             task_id        = f'CKPSCA-STT-{next_serial:04d}-{financial_year}'
+            task           = serializer.save(created_by=user, task_id=task_id)
 
-            task = serializer.save(created_by=user, task_id=task_id)
-
+            # ── Legacy assignments (your existing code) ──
             assigned_users = self.request.data.getlist('assigned_users')
             if role in ASSIGN_ROLES and assigned_users:
                 for uid in assigned_users:
@@ -2546,10 +2613,25 @@ class TaskViewSet(viewsets.ModelViewSet):
                         assigned_to_id=uid, assigned_by=user,
                     )
 
-            # ── Recurring Task checkbox ─────────────────────────────────
-            # Adds this client/sub_service to the recurring services list
-            # (ClientGroupService), which create_monthly_tasks() reads from.
-            # due_date is a day/month TEMPLATE (year 2000 placeholder).
+            # ── NEW: Maker/Checker assignments ──
+            maker_ids   = self.request.data.getlist('maker_ids')
+            checker_ids = self.request.data.getlist('checker_ids')
+            for role_key, uids in (
+                (TaskAssignment.ROLE_MAKER, maker_ids),
+                (TaskAssignment.ROLE_CHECKER, checker_ids),
+            ):
+                for uid in uids:
+                    if uid:
+                        TaskAssignment.objects.create(
+                            task=task, user_id=int(uid), role=role_key,
+                            is_active=True, assigned_by=user,
+                        )
+                        TaskAssignmentHistory.objects.create(
+                            task=task, assigned_from=None,
+                            assigned_to_id=int(uid), assigned_by=user,
+                        )
+
+            # ── Recurring Task (your existing code) ──
             is_recurring = str(self.request.data.get('is_recurring', '')).lower() == 'true'
             if is_recurring:
                 PERIOD_TYPE_MAP = {
@@ -2558,7 +2640,6 @@ class TaskViewSet(viewsets.ModelViewSet):
                 }
                 period_value = PERIOD_TYPE_MAP.get(self.request.data.get('period_type'))
                 due_date     = serializer.validated_data.get('due_date')
-
                 if period_value and due_date and client and sub_service:
                     already_active = ClientGroupService.objects.filter(
                         client=client, sub_service=sub_service, is_active=True,
@@ -2567,8 +2648,7 @@ class TaskViewSet(viewsets.ModelViewSet):
                         client_group = client.client_groups_membership.first()
                         if client_group:
                             ClientGroupService.objects.create(
-                                client_group=client_group,
-                                client=client,
+                                client_group=client_group, client=client,
                                 main_service=sub_service.main_service,
                                 sub_service=sub_service,
                                 period=period_value,

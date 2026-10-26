@@ -84,14 +84,55 @@ export default function MCASubServiceSelector({ mainService = 'company' }) {
   }, [mainService]);
 
   // Filter SubServices based on search and period
+  // Normalize for STT search (spaces / dashes)
+  const norm = (v) =>
+    String(v || '')
+      .toLowerCase()
+      .replace(/\s+/g, '')
+      .replace(/–/g, '-');
+
+  // task ids per sub-service name (from loaded MCA cases/jobs)
+  const taskIdsBySubService = useMemo(() => {
+    const map = {};
+    cases.forEach((c) => {
+      const name = c.sub_service_name || '';
+      if (!name) return;
+      if (!map[name]) map[name] = [];
+      const ids = [
+        c.task_id,
+        c.task_id_display,
+        c.linked_task?.task_id,
+        c.reference_no,
+      ]
+        .filter(Boolean)
+        .map(String);
+      ids.forEach((id) => {
+        if (!map[name].includes(id)) map[name].push(id);
+      });
+    });
+    return map;
+  }, [cases]);
+
+  // Filter by period + name OR STT/task number belonging to that sub-service
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const qn = norm(search);
+
     return subServices
       .filter((s) => periodFilter === 'All' || same(s.period, periodFilter))
-      .filter((s) => !q || (s.name || '').toLowerCase().includes(q))
+      .filter((s) => {
+        if (!q) return true;
+        const name = s.name || '';
+        if (name.toLowerCase().includes(q) || norm(name).includes(qn)) return true;
+
+        const taskIds = taskIdsBySubService[name] || [];
+        return taskIds.some(
+          (id) => id.toLowerCase().includes(q) || norm(id).includes(qn)
+        );
+      })
       .slice()
       .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  }, [subServices, periodFilter, search]);
+  }, [subServices, periodFilter, search, taskIdsBySubService]);
 
   // Calculate WIP, Open, and Closed stats per sub-service
   const statsMap = useMemo(() => {
@@ -172,7 +213,7 @@ export default function MCASubServiceSelector({ mainService = 'company' }) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             prefix={<span style={{ color: MUT }}>🔍</span>}
-            placeholder="Search forms…"
+            placeholder="Search forms  or STT number…"
           />
         </div>
         <span style={{ fontSize: 13, color: MUT, whiteSpace: 'nowrap' }}>

@@ -729,6 +729,7 @@ class CaseNoticeViewSet(viewsets.ModelViewSet):
 
         return Response(self.get_serializer(notice).data)
 
+
     @action(detail=True, methods=['post'], url_path='extensions')
     def add_extension(self, request, pk=None):
         notice = self.get_object()
@@ -739,12 +740,22 @@ class CaseNoticeViewSet(viewsets.ModelViewSet):
 
         new_date = request.data.get('extended_due_date')
         notes = request.data.get('notes')
-        
-        # ✅ USE getlist() FOR MULTIPLE FILES
+        ext_id = request.data.get('ext_id')
+
         reply_files = request.FILES.getlist('reply_files')
         ack_files = request.FILES.getlist('ack_files')
+        adjourn_files = request.FILES.getlist('adjourn_files')
 
-        la.submit_notice_extension(notice, new_date, notes, reply_files, ack_files, user)
+        retained_replies = request.data.getlist('retained_replies')
+        retained_acks = request.data.getlist('retained_acks')
+        retained_adjourns = request.data.getlist('retained_adjourns')
+
+        la.submit_notice_extension(
+            notice, new_date, notes, 
+            reply_files, ack_files, adjourn_files, 
+            retained_replies, retained_acks, retained_adjourns, 
+            ext_id, user
+        )
         
         notice.refresh_from_db()
         return Response(self.get_serializer(notice).data)
